@@ -10,7 +10,7 @@ import type {
 } from "@/lib/types";
 import GenerationProgress from "./GenerationProgress";
 
-const MAX_CONTINUATIONS = 4;
+const MAX_CONTINUATIONS = 8;
 
 const CONCURRENCY_LIMIT = 5;
 
