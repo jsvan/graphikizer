@@ -5,7 +5,7 @@ import { buildPanelImagePrompt } from "@/lib/prompts";
 import { uploadPanelImage, checkPanelExists } from "@/lib/blob";
 import type { GeneratePanelRequest, GeneratePanelResponse } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,14 +43,34 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildPanelImagePrompt(artworkPrompt, artStyle);
 
-    const output = await replicate.run("black-forest-labs/flux-1.1-pro", {
-      input: {
-        prompt,
-        width: 1024,
-        height: 1024,
-        prompt_upsampling: true,
-      },
-    });
+    const MAX_RETRIES = 5;
+    let output: unknown;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        output = await replicate.run("black-forest-labs/flux-1.1-pro", {
+          input: {
+            prompt,
+            width: 1024,
+            height: 1024,
+            prompt_upsampling: true,
+          },
+        });
+        break;
+      } catch (err: unknown) {
+        const is429 =
+          err instanceof Error && err.message.includes("429");
+        if (is429 && attempt < MAX_RETRIES - 1) {
+          // Parse retry_after from error message, default to 15s
+          let waitSeconds = 15;
+          const match = err.message.match(/retry_after.*?(\d+)/i);
+          if (match) waitSeconds = Math.max(Number(match[1]), 5);
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+          continue;
+        }
+        throw err;
+      }
+    }
 
     // FLUX returns a URL string or a FileOutput object
     let imageUrlFromReplicate: string;
