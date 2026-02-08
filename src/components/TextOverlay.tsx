@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import type { TextOverlay as TextOverlayType } from "@/lib/types";
 
 interface TextOverlayProps {
@@ -11,79 +11,103 @@ interface TextOverlayProps {
   renderBelow?: boolean;
 }
 
-export default function TextOverlay({ overlay, editable, onPositionChange, renderBelow }: TextOverlayProps) {
+export default function TextOverlay({
+  overlay,
+  editable,
+  onPositionChange,
+  renderBelow,
+}: TextOverlayProps) {
   const { type, text, x, y, anchor, maxWidthPercent = 40, speaker } = overlay;
   const elRef = useRef<HTMLDivElement>(null);
-  // startX/startY = pointer offset within element (pixels from element top-left)
-  const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    origLeft: number;
+    origTop: number;
+  } | null>(null);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!editable) return;
+  const onMouseMove = useCallback((e: MouseEvent) => {
+    const drag = dragRef.current;
     const el = elRef.current;
-    if (!el) return;
+    if (!drag || !el) return;
     e.preventDefault();
-    e.stopPropagation();
-    const rect = el.getBoundingClientRect();
-    dragState.current = {
-      offsetX: e.clientX - rect.left,
-      offsetY: e.clientY - rect.top,
-    };
-    el.setPointerCapture(e.pointerId);
-    el.style.cursor = "grabbing";
-  }, [editable]);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragState.current || !editable) return;
-    const el = elRef.current;
-    if (!el || !el.parentElement) return;
-    e.preventDefault();
-
-    const parentRect = el.parentElement.getBoundingClientRect();
-    let newLeft = e.clientX - dragState.current.offsetX - parentRect.left;
-    let newTop = e.clientY - dragState.current.offsetY - parentRect.top;
-
-    // Clamp to parent bounds
-    newLeft = Math.max(0, Math.min(newLeft, parentRect.width - el.offsetWidth));
-    newTop = Math.max(0, Math.min(newTop, parentRect.height - el.offsetHeight));
-
-    el.style.left = `${newLeft}px`;
-    el.style.top = `${newTop}px`;
+    el.style.left = `${drag.origLeft + (e.clientX - drag.startX)}px`;
+    el.style.top = `${drag.origTop + (e.clientY - drag.startY)}px`;
     el.style.right = "auto";
     el.style.bottom = "auto";
     el.style.transform = "none";
-  }, [editable]);
+  }, []);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragState.current || !editable) return;
-    const el = elRef.current;
-    if (!el || !el.parentElement) return;
+  const onMouseUp = useCallback(
+    (e: MouseEvent) => {
+      const el = elRef.current;
+      if (!el || !el.parentElement) {
+        dragRef.current = null;
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        return;
+      }
 
-    el.releasePointerCapture(e.pointerId);
-    el.style.cursor = "grab";
+      el.style.cursor = "grab";
 
-    const parentRect = el.parentElement.getBoundingClientRect();
-    const xPercent = (el.offsetLeft / parentRect.width) * 100;
-    const yPercent = (el.offsetTop / parentRect.height) * 100;
+      // Convert pixel position to percentage of parent
+      const parentRect = el.parentElement.getBoundingClientRect();
+      const xPct = ((e.clientX - dragRef.current!.startX + dragRef.current!.origLeft) / parentRect.width) * 100;
+      const yPct = ((e.clientY - dragRef.current!.startY + dragRef.current!.origTop) / parentRect.height) * 100;
 
-    dragState.current = null;
-    onPositionChange?.(
-      Math.round(xPercent * 100) / 100,
-      Math.round(yPercent * 100) / 100
-    );
-  }, [editable, onPositionChange]);
+      dragRef.current = null;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+
+      onPositionChange?.(
+        Math.round(xPct * 100) / 100,
+        Math.round(yPct * 100) / 100
+      );
+    },
+    [onMouseMove, onPositionChange]
+  );
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!editable) return;
+      const el = elRef.current;
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origLeft: el.offsetLeft,
+        origTop: el.offsetTop,
+      };
+      el.style.cursor = "grabbing";
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [editable, onMouseMove, onMouseUp]
+  );
+
+  // Cleanup listeners on unmount
+  useEffect(() => {
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [onMouseMove, onMouseUp]);
 
   // --- Below-image rendering (static flow, no absolute positioning) ---
   if (renderBelow) {
     if (type === "narration") {
       return (
-        <div className="bg-black/90 border-l-2 border-amber-400 px-3 py-2 text-gray-100 text-sm italic leading-snug">
+        <div className="bg-amber-50 border-l-4 border-gray-900 px-3 py-2 text-gray-900 text-sm italic leading-snug">
           {text}
         </div>
       );
     }
-    // Captions below
     return (
-      <div className="bg-black/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+      <div className="bg-amber-100 border border-gray-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-800">
         {text}
       </div>
     );
@@ -100,7 +124,6 @@ export default function TextOverlay({ overlay, editable, onPositionChange, rende
     positionStyle.left = `${x}%`;
     positionStyle.top = `${y}%`;
     positionStyle.cursor = "grab";
-    positionStyle.touchAction = "none";
   } else {
     if (anchor === "top-left" || anchor === "bottom-left") {
       positionStyle.left = `${x}%`;
@@ -121,53 +144,59 @@ export default function TextOverlay({ overlay, editable, onPositionChange, rende
     }
   }
 
-  const editableRing = editable ? " ring-2 ring-amber-400/50 ring-offset-1 ring-offset-transparent" : "";
+  const editableRing = editable
+    ? " ring-2 ring-amber-400/50 ring-offset-1 ring-offset-transparent"
+    : "";
 
-  const pointerHandlers = editable
-    ? { onPointerDown: handlePointerDown, onPointerMove: handlePointerMove, onPointerUp: handlePointerUp }
-    : {};
-
+  // Narration box — cream parchment style
   if (type === "narration") {
     return (
       <div
         ref={elRef}
         style={positionStyle}
-        className={`bg-black/75 border-l-2 border-amber-400 px-3 py-2 text-gray-100 text-sm italic leading-snug${editableRing}`}
-        {...pointerHandlers}
+        className={`bg-amber-50/95 border-2 border-gray-900 border-l-4 px-3 py-2 text-gray-900 text-sm italic leading-snug shadow-lg${editableRing}`}
+        onMouseDown={onMouseDown}
       >
         {text}
       </div>
     );
   }
 
+  // Speech bubble
   if (type === "dialogue") {
     return (
       <div
         ref={elRef}
         style={positionStyle}
         className={`flex flex-col items-start${editableRing}`}
-        {...pointerHandlers}
+        onMouseDown={onMouseDown}
       >
         {speaker && (
-          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-0.5 px-1">
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-0.5 px-1"
+            style={{
+              textShadow:
+                "1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9)",
+            }}
+          >
             {speaker}
           </span>
         )}
-        <div className="bg-white text-gray-900 rounded-lg px-3 py-2 text-sm leading-snug shadow-md relative">
+        <div className="bg-white text-gray-900 rounded-lg px-3 py-2 text-sm leading-snug border-2 border-gray-900 shadow-lg relative">
           {text}
-          <div className="absolute -bottom-1.5 left-4 w-3 h-3 bg-white rotate-45" />
+          <div className="absolute -bottom-2 left-4 w-3 h-3 bg-white border-b-2 border-r-2 border-gray-900 rotate-45" />
         </div>
       </div>
     );
   }
 
-  // Caption
+  // Caption — cream comic style
   return (
     <div
       ref={elRef}
       style={positionStyle}
-      className={`bg-black/80 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-300${editableRing}`}
-      {...pointerHandlers}
+      className={`bg-amber-100/95 border-2 border-gray-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-800 shadow-md${editableRing}`}
+      onMouseDown={onMouseDown}
     >
       {text}
     </div>
