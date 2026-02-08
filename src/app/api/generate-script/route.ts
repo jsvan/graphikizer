@@ -1,19 +1,39 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { verifyPassword } from "@/lib/auth";
-import { buildScriptPrompt } from "@/lib/prompts";
+import {
+  buildFirstChunkPrompt,
+  buildContinuationChunkPrompt,
+} from "@/lib/prompts";
+import type { ArtStyle } from "@/lib/types";
 
 export const maxDuration = 60;
 
 const SYSTEM_PROMPT =
-  "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source article — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.";
+  "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source material — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { title, sourceUrl, articleText, password, partialResponse } = body;
+    const {
+      title,
+      articleChunk,
+      chunkNumber,
+      totalChunks,
+      password,
+      artStyle,
+      startPanelIndex,
+    } = body as {
+      title: string;
+      articleChunk: string;
+      chunkNumber: number;
+      totalChunks: number;
+      password: string;
+      artStyle?: ArtStyle;
+      startPanelIndex?: number;
+    };
 
-    if (!title || !articleText || !password) {
+    if (!title || !articleChunk || !password || !chunkNumber || !totalChunks) {
       return Response.json(
         { success: false, error: "Missing required fields" },
         { status: 400 }
@@ -32,23 +52,23 @@ export async function POST(req: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    const prompt = buildScriptPrompt(title, articleText);
-
-    // Build messages — either fresh or continuation via true prefill.
-    // When partialResponse is provided, it becomes the last (assistant)
-    // message. The API then continues generating tokens from that exact
-    // point — no re-generation, no overlap.
-    const messages: Anthropic.MessageParam[] = partialResponse
-      ? [
-          { role: "user", content: prompt },
-          { role: "assistant", content: partialResponse },
-        ]
-      : [{ role: "user", content: prompt }];
+    // First chunk picks art style; continuation chunks receive it
+    const prompt =
+      artStyle && startPanelIndex !== undefined
+        ? buildContinuationChunkPrompt(
+            title,
+            articleChunk,
+            artStyle,
+            startPanelIndex,
+            chunkNumber,
+            totalChunks
+          )
+        : buildFirstChunkPrompt(title, articleChunk, chunkNumber, totalChunks);
 
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
-      max_tokens: 64000,
-      messages,
+      max_tokens: 16000,
+      messages: [{ role: "user", content: prompt }],
       system: SYSTEM_PROMPT,
       temperature: 0.7,
     });
@@ -85,7 +105,8 @@ export async function POST(req: NextRequest) {
     return Response.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Script generation failed",
+        error:
+          error instanceof Error ? error.message : "Script generation failed",
       },
       { status: 500 }
     );

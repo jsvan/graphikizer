@@ -4,15 +4,116 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ComicScript,
+  ComicPanel as ComicPanelType,
+  ComicPage,
+  ArtStyle,
   GeneratePanelResponse,
   SaveArticleResponse,
   ArticleManifest,
 } from "@/lib/types";
 import GenerationProgress from "./GenerationProgress";
 
-const MAX_CONTINUATIONS = 8;
-
 const CONCURRENCY_LIMIT = 5;
+const TARGET_WORDS_PER_CHUNK = 1200;
+const PANELS_PER_PAGE = 10;
+
+/** Split article text into chunks on paragraph boundaries. */
+function splitIntoChunks(text: string, targetWords: number): string[] {
+  const paragraphs = text.split(/\n\n+/);
+  const chunks: string[] = [];
+  let current = "";
+  let currentWords = 0;
+
+  for (const para of paragraphs) {
+    const paraWords = para.split(/\s+/).filter(Boolean).length;
+    if (currentWords + paraWords > targetWords && currentWords > 0) {
+      chunks.push(current.trim());
+      current = para;
+      currentWords = paraWords;
+    } else {
+      current += (current ? "\n\n" : "") + para;
+      currentWords += paraWords;
+    }
+  }
+  if (current.trim()) {
+    chunks.push(current.trim());
+  }
+  return chunks;
+}
+
+/** Group flat panels into pages of ~N panels each. */
+function groupIntoPages(
+  panels: ComicPanelType[],
+  perPage: number
+): ComicPage[] {
+  const pages: ComicPage[] = [];
+  for (let i = 0; i < panels.length; i += perPage) {
+    pages.push({
+      pageNumber: pages.length + 1,
+      panels: panels.slice(i, i + perPage),
+    });
+  }
+  return pages;
+}
+
+/** Strip markdown fences and trim whitespace. */
+function stripFences(text: string): string {
+  return text
+    .replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "")
+    .replace(/[\s\n]*```[\s\n]*$/i, "")
+    .trim();
+}
+
+/** Escape control characters inside JSON string values. */
+function sanitizeJsonControlChars(text: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const code = text.charCodeAt(i);
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      result += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      result += ch;
+      continue;
+    }
+    if (inString && code <= 0x1f) {
+      if (ch === "\n") result += "\\n";
+      else if (ch === "\r") result += "\\r";
+      else if (ch === "\t") result += "\\t";
+      else result += `\\u${code.toString(16).padStart(4, "0")}`;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
+/** Read a streaming response body to completion, returning the full text. */
+async function readStream(res: Response): Promise<string> {
+  if (!res.body) throw new Error("No response stream");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+  return text;
+}
 
 export default function UploadForm() {
   const router = useRouter();
@@ -21,9 +122,12 @@ export default function UploadForm() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [articleText, setArticleText] = useState("");
   const [password, setPassword] = useState("");
-  const [stage, setStage] = useState<"idle" | "script" | "panels" | "saving" | "done" | "error">("idle");
+  const [stage, setStage] = useState<
+    "idle" | "script" | "panels" | "saving" | "done" | "error"
+  >("idle");
   const [currentPanel, setCurrentPanel] = useState(0);
   const [totalPanels, setTotalPanels] = useState(0);
+  const [scriptChunkProgress, setScriptChunkProgress] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [scriptPreview, setScriptPreview] = useState<object | null>(null);
   const [latestImageUrl, setLatestImageUrl] = useState("");
@@ -64,8 +168,12 @@ export default function UploadForm() {
 
             if (!data.success) {
               lastError = data.error || `Panel ${panel.panelIndex} failed`;
-              // Retry on throttle/timeout errors
-              if (attempt < CLIENT_RETRIES - 1 && (lastError.includes("429") || lastError.includes("throttled") || lastError.includes("timed out"))) {
+              if (
+                attempt < CLIENT_RETRIES - 1 &&
+                (lastError.includes("429") ||
+                  lastError.includes("throttled") ||
+                  lastError.includes("timed out"))
+              ) {
                 await new Promise((r) => setTimeout(r, 15000));
                 continue;
               }
@@ -85,14 +193,12 @@ export default function UploadForm() {
       }
     }
 
-    // Launch workers
     const workers = Array.from(
       { length: Math.min(CONCURRENCY_LIMIT, allPanels.length) },
       () => worker()
     );
     await Promise.all(workers);
 
-    // Assign image URLs back to the script
     for (const page of script.pages) {
       for (const panel of page.panels) {
         panel.imageUrl = results.get(panel.panelIndex);
@@ -111,90 +217,49 @@ export default function UploadForm() {
     setErrorMessage("");
     setScriptPreview(null);
     setLatestImageUrl("");
+    setScriptChunkProgress("");
 
     try {
-      // Step 1: Generate script via streaming with continuation
-      let fullText = "";
-      let streamCompleted = false;
+      // Step 1: Split article into chunks and generate script for each
+      const chunks = splitIntoChunks(articleText, TARGET_WORDS_PER_CHUNK);
+      const totalChunks = chunks.length;
+      console.log(
+        `[Script] Split article into ${totalChunks} chunks of ~${TARGET_WORDS_PER_CHUNK} words`
+      );
 
-      function stripFences(text: string): string {
-        return text
-          .replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "")
-          .replace(/[\s\n]*```[\s\n]*$/i, "")
-          .trim();
-      }
+      let artStyle: ArtStyle | null = null;
+      const allPanels: ComicPanelType[] = [];
 
-      // Claude sometimes emits literal control characters (newlines, tabs)
-      // inside JSON string values, which breaks JSON.parse(). This walks
-      // the text tracking whether we're inside a quoted string and escapes
-      // any raw control chars found there.
-      function sanitizeJsonControlChars(text: string): string {
-        let result = "";
-        let inString = false;
-        let escaped = false;
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkNumber = i + 1;
+        setScriptChunkProgress(`chunk ${chunkNumber} of ${totalChunks}`);
+        console.log(
+          `[Script] Generating chunk ${chunkNumber}/${totalChunks} (${chunks[i].split(/\s+/).length} words)`
+        );
 
-        for (let i = 0; i < text.length; i++) {
-          const ch = text[i];
-          const code = text.charCodeAt(i);
-
-          if (escaped) {
-            result += ch;
-            escaped = false;
-            continue;
-          }
-
-          if (ch === "\\" && inString) {
-            result += ch;
-            escaped = true;
-            continue;
-          }
-
-          if (ch === '"') {
-            inString = !inString;
-            result += ch;
-            continue;
-          }
-
-          // Control character inside a JSON string — escape it
-          if (inString && code <= 0x1f) {
-            if (ch === "\n") result += "\\n";
-            else if (ch === "\r") result += "\\r";
-            else if (ch === "\t") result += "\\t";
-            else result += `\\u${code.toString(16).padStart(4, "0")}`;
-            continue;
-          }
-
-          result += ch;
-        }
-
-        return result;
-      }
-
-      for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
-        const isContinuation = attempt > 0;
-        console.log(`[Script] Attempt ${attempt + 1}/${MAX_CONTINUATIONS + 1}${isContinuation ? " (continuation)" : ""}, collected so far: ${fullText.length} chars`);
-
-        // For continuations: strip fences, then trim to last complete line
-        // so the prefill ends at a clean JSON boundary (not mid-string).
-        // Claude regenerates the partial line, giving us a clean seam.
-        let basePrefill: string | undefined;
-        if (isContinuation) {
-          const stripped = stripFences(fullText);
-          const lastNewline = stripped.lastIndexOf("\n");
-          basePrefill = lastNewline > 0 ? stripped.substring(0, lastNewline) : stripped;
-          console.log(`[Script] Trimmed prefill: ${basePrefill.length} chars (cut ${stripped.length - basePrefill.length} trailing chars)`);
-        }
+        const isFirstChunk = i === 0;
+        const requestBody = isFirstChunk
+          ? {
+              title,
+              articleChunk: chunks[i],
+              chunkNumber,
+              totalChunks,
+              password,
+            }
+          : {
+              title,
+              articleChunk: chunks[i],
+              chunkNumber,
+              totalChunks,
+              password,
+              artStyle,
+              startPanelIndex: allPanels.length,
+            };
 
         const res = await fetch("/api/generate-script", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            sourceUrl,
-            articleText,
-            password,
-            ...(basePrefill ? { partialResponse: basePrefill } : {}),
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!res.ok) {
@@ -202,66 +267,47 @@ export default function UploadForm() {
           try {
             const errData = await res.json();
             errMsg = errData.error || errMsg;
-          } catch { /* non-JSON error body */ }
-          console.error(`[Script] Server error:`, errMsg);
-          throw new Error(errMsg);
-        }
-
-        if (!res.body) throw new Error("No response stream");
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let chunkCount = 0;
-        let newText = "";
-        streamCompleted = false;
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              streamCompleted = true;
-              break;
-            }
-            newText += decoder.decode(value, { stream: true });
-            chunkCount++;
+          } catch {
+            /* non-JSON error body */
           }
-        } catch (streamErr) {
-          console.warn(`[Script] Stream interrupted after ${chunkCount} chunks, ${newText.length} new chars. Error:`, streamErr);
+          throw new Error(`Chunk ${chunkNumber}: ${errMsg}`);
         }
 
-        console.log(`[Script] Stream ${streamCompleted ? "completed" : "interrupted"}: ${newText.length} new chars, ${chunkCount} chunks`);
+        const rawText = await readStream(res);
+        const cleaned = sanitizeJsonControlChars(stripFences(rawText));
+        console.log(
+          `[Script] Chunk ${chunkNumber}: ${cleaned.length} chars, first 100: ${cleaned.slice(0, 100)}`
+        );
 
-        if (isContinuation) {
-          // True prefill: continuation tokens directly follow the prefill.
-          // Don't strip or trim — the tokens are an exact continuation.
-          fullText = basePrefill + newText;
-          console.log(`[Script] After merge: ${fullText.length} total chars`);
-        } else {
-          fullText = newText;
-        }
-
-        console.log(`[Script] First 200 chars: ${fullText.slice(0, 200)}`);
-        console.log(`[Script] Last 200 chars: ${fullText.slice(-200)}`);
-
-        // Strip fences, sanitize control chars, and try parsing
-        const cleaned = sanitizeJsonControlChars(stripFences(fullText));
+        let parsed: { artStyle?: ArtStyle; panels: ComicPanelType[] };
         try {
-          JSON.parse(cleaned);
-          fullText = cleaned;
-          console.log(`[Script] Valid JSON! ${cleaned.length} chars`);
-          break;
+          parsed = JSON.parse(cleaned);
         } catch (parseErr) {
-          console.warn(`[Script] JSON parse failed:`, parseErr);
-
-          if (attempt < MAX_CONTINUATIONS && fullText.length > 100) {
-            console.log(`[Script] Requesting continuation...`);
-            continue;
-          }
-          throw new Error(`Script generation incomplete after ${attempt + 1} attempts. Collected ${fullText.length} chars. Last 100: ${cleaned.slice(-100)}`);
+          console.error(
+            `[Script] Chunk ${chunkNumber} JSON parse failed:`,
+            parseErr
+          );
+          console.error(`[Script] Last 200 chars: ${cleaned.slice(-200)}`);
+          throw new Error(
+            `Chunk ${chunkNumber} produced invalid JSON. ${cleaned.length} chars received.`
+          );
         }
+
+        if (isFirstChunk) {
+          if (!parsed.artStyle) {
+            throw new Error("First chunk did not include artStyle");
+          }
+          artStyle = parsed.artStyle;
+          console.log(`[Script] Art style: ${artStyle.name}`);
+        }
+
+        allPanels.push(...parsed.panels);
+        console.log(
+          `[Script] Chunk ${chunkNumber} added ${parsed.panels.length} panels (total: ${allPanels.length})`
+        );
       }
 
-      const parsed = JSON.parse(fullText);
+      if (!artStyle) throw new Error("No art style generated");
 
       // Build slug from title
       const slug = title
@@ -270,11 +316,22 @@ export default function UploadForm() {
         .replace(/^-|-$/g, "")
         .slice(0, 80);
 
+      // Re-index panels sequentially and group into pages
+      allPanels.forEach((p, idx) => (p.panelIndex = idx));
+      const pages = groupIntoPages(allPanels, PANELS_PER_PAGE);
+
+      // Build the full script object for saving
+      const fullScriptJson = JSON.stringify(
+        { artStyle, totalPanels: allPanels.length, pages },
+        null,
+        2
+      );
+
       // Save raw script to blob
       const saveScriptRes = await fetch("/api/save-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, content: fullText, password }),
+        body: JSON.stringify({ slug, content: fullScriptJson, password }),
       });
       const saveScriptData = await saveScriptRes.json();
 
@@ -282,14 +339,13 @@ export default function UploadForm() {
         title,
         slug,
         sourceUrl: sourceUrl || "",
-        artStyle: parsed.artStyle,
-        totalPanels: parsed.totalPanels,
-        pages: parsed.pages,
+        artStyle,
+        totalPanels: allPanels.length,
+        pages,
         scriptUrl: saveScriptData.url,
       };
 
       setScriptPreview(script);
-      const allPanels = script.pages.flatMap((p) => p.panels);
       setTotalPanels(allPanels.length);
       setCurrentPanel(0);
       setLatestImageUrl("");
@@ -326,7 +382,6 @@ export default function UploadForm() {
 
       setStage("done");
 
-      // Redirect after brief delay
       setTimeout(() => {
         router.push(`/article/${completedScript.slug}`);
       }, 1500);
@@ -353,88 +408,104 @@ export default function UploadForm() {
           stroke="currentColor"
           strokeWidth={2}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 5l7 7-7 7"
+          />
         </svg>
         {expanded ? "Hide form" : "Create new graphic novel"}
       </button>
 
       {expanded && (
-      <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-5">
-        <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-300 mb-1">
-            Article Title
-          </label>
-          <input
-            id="title"
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Europe's Next Hegemon"
-            required
-            disabled={isGenerating}
-            className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-5">
+          <div>
+            <label
+              htmlFor="title"
+              className="block text-sm font-medium text-gray-300 mb-1"
+            >
+              Article Title
+            </label>
+            <input
+              id="title"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Europe's Next Hegemon"
+              required
+              disabled={isGenerating}
+              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
+            />
+          </div>
 
-        <div>
-          <label htmlFor="sourceUrl" className="block text-sm font-medium text-gray-300 mb-1">
-            Source URL
-          </label>
-          <input
-            id="sourceUrl"
-            type="url"
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            placeholder="https://www.foreignaffairs.com/..."
-            required
-            disabled={isGenerating}
-            className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
-          />
-        </div>
+          <div>
+            <label
+              htmlFor="sourceUrl"
+              className="block text-sm font-medium text-gray-300 mb-1"
+            >
+              Source URL
+            </label>
+            <input
+              id="sourceUrl"
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://www.foreignaffairs.com/..."
+              required
+              disabled={isGenerating}
+              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
+            />
+          </div>
 
-        <div>
-          <label htmlFor="articleText" className="block text-sm font-medium text-gray-300 mb-1">
-            Article Text
-          </label>
-          <textarea
-            id="articleText"
-            value={articleText}
-            onChange={(e) => setArticleText(e.target.value)}
-            placeholder="Paste the full article text here..."
-            required
-            disabled={isGenerating}
-            rows={12}
-            className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50 resize-y"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            {articleText.split(/\s+/).filter(Boolean).length} words
-          </p>
-        </div>
+          <div>
+            <label
+              htmlFor="articleText"
+              className="block text-sm font-medium text-gray-300 mb-1"
+            >
+              Article Text
+            </label>
+            <textarea
+              id="articleText"
+              value={articleText}
+              onChange={(e) => setArticleText(e.target.value)}
+              placeholder="Paste the full article text here..."
+              required
+              disabled={isGenerating}
+              rows={12}
+              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50 resize-y"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {articleText.split(/\s+/).filter(Boolean).length} words
+            </p>
+          </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-1">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Admin password"
-            required
-            disabled={isGenerating}
-            className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
-          />
-        </div>
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-gray-300 mb-1"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Admin password"
+              required
+              disabled={isGenerating}
+              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
+            />
+          </div>
 
-        <button
-          type="submit"
-          disabled={isGenerating}
-          className="w-full py-3 bg-amber-500 text-gray-900 font-bold rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isGenerating ? "Generating..." : "Generate Graphic Novel"}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={isGenerating}
+            className="w-full py-3 bg-amber-500 text-gray-900 font-bold rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isGenerating ? "Generating..." : "Generate Graphic Novel"}
+          </button>
+        </form>
       )}
 
       <GenerationProgress
@@ -444,6 +515,7 @@ export default function UploadForm() {
         errorMessage={errorMessage}
         scriptPreview={scriptPreview}
         latestImageUrl={latestImageUrl}
+        scriptChunkProgress={scriptChunkProgress}
       />
     </div>
   );

@@ -9,6 +9,7 @@ interface GenerationProgressProps {
   errorMessage?: string;
   scriptPreview?: object | null;
   latestImageUrl?: string;
+  scriptChunkProgress?: string;
 }
 
 export default function GenerationProgress({
@@ -18,6 +19,7 @@ export default function GenerationProgress({
   errorMessage,
   scriptPreview,
   latestImageUrl,
+  scriptChunkProgress,
 }: GenerationProgressProps) {
   const [scriptExpanded, setScriptExpanded] = useState(false);
 
@@ -31,11 +33,10 @@ export default function GenerationProgress({
         {stage === "script" && (
           <div className="text-center">
             <div className="animate-pulse text-amber-400 text-lg font-semibold mb-2">
-              Generating Script...
+              Generating Script{scriptChunkProgress ? ` (${scriptChunkProgress})` : ""}...
             </div>
             <p className="text-gray-400 text-sm">
-              AI is reading the article and creating a graphic novel script.
-              This takes about 30 seconds.
+              AI is reading the article section by section and creating a graphic novel script.
             </p>
           </div>
         )}
