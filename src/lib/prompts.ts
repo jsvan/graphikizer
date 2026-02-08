@@ -75,7 +75,7 @@ ${articleChunk}
 
 ${CONTENT_RULES}
 
-Generate 5-8 panels for this section. Start at panelIndex 0. Every significant argument and piece of evidence in this section must appear.
+Generate EXACTLY 5 to 7 panels for this section (never more than 7). Start at panelIndex 0. Every significant argument and piece of evidence in this section must appear.
 
 ---
 
@@ -154,7 +154,7 @@ ${articleChunk}
 
 ${CONTENT_RULES}
 
-Generate 5-8 panels for this section. Start numbering at panelIndex ${startPanelIndex}. Every significant argument and piece of evidence in this section must appear.
+Generate EXACTLY 5 to 7 panels for this section (never more than 7). Start numbering at panelIndex ${startPanelIndex}. Every significant argument and piece of evidence in this section must appear.
 
 ${PANEL_LAYOUT_RULES}
 

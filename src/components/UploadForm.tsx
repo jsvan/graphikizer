@@ -197,31 +197,50 @@ export default function UploadForm() {
               startPanelIndex: allPanels.length,
             };
 
-        const res = await fetch("/api/generate-script", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        });
+        let parsed: { artStyle?: ArtStyle; panels: ComicPanelType[] } | null = null;
+        const MAX_RETRIES = 2;
 
-        if (!res.ok) {
-          throw new Error(`Chunk ${chunkNumber}: server error ${res.status}`);
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          if (attempt > 0) {
+            console.log(`[Script] Chunk ${chunkNumber} retry ${attempt}`);
+          }
+
+          const res = await fetch("/api/generate-script", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!res.ok) {
+            throw new Error(`Chunk ${chunkNumber}: server error ${res.status}`);
+          }
+
+          // Server streams keepalive newlines, then JSON as the final line
+          const text = await res.text();
+          const lines = text.split("\n").filter(Boolean);
+          if (lines.length === 0) {
+            console.warn(`[Script] Chunk ${chunkNumber} attempt ${attempt + 1}: no response (likely timeout)`);
+            if (attempt >= MAX_RETRIES - 1) {
+              throw new Error(`Chunk ${chunkNumber} timed out after ${MAX_RETRIES} attempts`);
+            }
+            continue;
+          }
+
+          const result = JSON.parse(lines[lines.length - 1]);
+          if (!result.success) {
+            throw new Error(`Chunk ${chunkNumber}: ${result.error}`);
+          }
+
+          parsed = result.data;
+          console.log(
+            `[Script] Chunk ${chunkNumber} OK: ${parsed!.panels.length} panels`
+          );
+          break;
         }
 
-        // Server streams keepalive newlines, then JSON as the final line
-        const text = await res.text();
-        const lines = text.split("\n").filter(Boolean);
-        const result = JSON.parse(lines[lines.length - 1]);
-        if (!result.success) {
-          throw new Error(`Chunk ${chunkNumber}: ${result.error}`);
+        if (!parsed) {
+          throw new Error(`Chunk ${chunkNumber} failed`);
         }
-
-        const parsed = result.data as {
-          artStyle?: ArtStyle;
-          panels: ComicPanelType[];
-        };
-        console.log(
-          `[Script] Chunk ${chunkNumber} OK: ${parsed.panels.length} panels`
-        );
 
         if (isFirstChunk) {
           if (!parsed.artStyle) {
