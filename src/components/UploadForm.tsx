@@ -24,6 +24,8 @@ export default function UploadForm() {
   const [currentPanel, setCurrentPanel] = useState(0);
   const [totalPanels, setTotalPanels] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [scriptPreview, setScriptPreview] = useState<object | null>(null);
+  const [latestImageUrl, setLatestImageUrl] = useState("");
   const abortRef = useRef(false);
 
   async function generatePanelsWithConcurrency(
@@ -59,6 +61,7 @@ export default function UploadForm() {
         }
 
         results.set(panel.panelIndex, data.imageUrl!);
+        setLatestImageUrl(data.imageUrl!);
         completed++;
         setCurrentPanel(completed);
       }
@@ -88,6 +91,8 @@ export default function UploadForm() {
     abortRef.current = false;
     setStage("script");
     setErrorMessage("");
+    setScriptPreview(null);
+    setLatestImageUrl("");
 
     try {
       // Step 1: Generate script
@@ -104,9 +109,11 @@ export default function UploadForm() {
       }
 
       const script = scriptData.script;
+      setScriptPreview(scriptData.script);
       const allPanels = script.pages.flatMap((p) => p.panels);
       setTotalPanels(allPanels.length);
       setCurrentPanel(0);
+      setLatestImageUrl("");
       setStage("panels");
 
       // Step 2: Generate all panel images
@@ -256,6 +263,8 @@ export default function UploadForm() {
         currentPanel={currentPanel}
         totalPanels={totalPanels}
         errorMessage={errorMessage}
+        scriptPreview={scriptPreview}
+        latestImageUrl={latestImageUrl}
       />
     </div>
   );
