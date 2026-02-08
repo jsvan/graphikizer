@@ -124,6 +124,52 @@ export default function UploadForm() {
           .trim();
       }
 
+      // Claude sometimes emits literal control characters (newlines, tabs)
+      // inside JSON string values, which breaks JSON.parse(). This walks
+      // the text tracking whether we're inside a quoted string and escapes
+      // any raw control chars found there.
+      function sanitizeJsonControlChars(text: string): string {
+        let result = "";
+        let inString = false;
+        let escaped = false;
+
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          const code = text.charCodeAt(i);
+
+          if (escaped) {
+            result += ch;
+            escaped = false;
+            continue;
+          }
+
+          if (ch === "\\" && inString) {
+            result += ch;
+            escaped = true;
+            continue;
+          }
+
+          if (ch === '"') {
+            inString = !inString;
+            result += ch;
+            continue;
+          }
+
+          // Control character inside a JSON string — escape it
+          if (inString && code <= 0x1f) {
+            if (ch === "\n") result += "\\n";
+            else if (ch === "\r") result += "\\r";
+            else if (ch === "\t") result += "\\t";
+            else result += `\\u${code.toString(16).padStart(4, "0")}`;
+            continue;
+          }
+
+          result += ch;
+        }
+
+        return result;
+      }
+
       for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
         const isContinuation = attempt > 0;
         console.log(`[Script] Attempt ${attempt + 1}/${MAX_CONTINUATIONS + 1}${isContinuation ? " (continuation)" : ""}, collected so far: ${fullText.length} chars`);
@@ -190,8 +236,8 @@ export default function UploadForm() {
         console.log(`[Script] First 200 chars: ${fullText.slice(0, 200)}`);
         console.log(`[Script] Last 200 chars: ${fullText.slice(-200)}`);
 
-        // Strip fences and try parsing
-        const cleaned = stripFences(fullText);
+        // Strip fences, sanitize control chars, and try parsing
+        const cleaned = sanitizeJsonControlChars(stripFences(fullText));
         try {
           JSON.parse(cleaned);
           fullText = cleaned;
