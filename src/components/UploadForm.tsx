@@ -117,9 +117,19 @@ export default function UploadForm() {
       let fullText = "";
       let streamCompleted = false;
 
+      function stripFences(text: string): string {
+        return text
+          .replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "")
+          .replace(/[\s\n]*```[\s\n]*$/i, "")
+          .trim();
+      }
+
       for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
         const isContinuation = attempt > 0;
         console.log(`[Script] Attempt ${attempt + 1}/${MAX_CONTINUATIONS + 1}${isContinuation ? " (continuation)" : ""}, collected so far: ${fullText.length} chars`);
+
+        // For continuations, send the cleaned (fence-stripped) text
+        const partialForContinuation = isContinuation ? stripFences(fullText) : undefined;
 
         const res = await fetch("/api/generate-script", {
           method: "POST",
@@ -129,7 +139,7 @@ export default function UploadForm() {
             sourceUrl,
             articleText,
             password,
-            ...(isContinuation ? { partialResponse: fullText } : {}),
+            ...(partialForContinuation ? { partialResponse: partialForContinuation } : {}),
           }),
         });
 
@@ -148,6 +158,7 @@ export default function UploadForm() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let chunkCount = 0;
+        let newText = "";
         streamCompleted = false;
 
         try {
@@ -157,31 +168,30 @@ export default function UploadForm() {
               streamCompleted = true;
               break;
             }
-            fullText += decoder.decode(value, { stream: true });
+            newText += decoder.decode(value, { stream: true });
             chunkCount++;
           }
         } catch (streamErr) {
-          console.warn(`[Script] Stream interrupted after ${chunkCount} chunks, ${fullText.length} chars total. Error:`, streamErr);
-          if (attempt < MAX_CONTINUATIONS && fullText.length > 0) {
-            console.log(`[Script] Will retry with continuation...`);
-            continue;
-          }
-          throw new Error("Connection lost and max retries exceeded");
+          console.warn(`[Script] Stream interrupted after ${chunkCount} chunks, ${newText.length} new chars. Error:`, streamErr);
         }
 
-        console.log(`[Script] Stream ${streamCompleted ? "completed" : "interrupted"}: ${fullText.length} chars, ${chunkCount} chunks`);
+        console.log(`[Script] Stream ${streamCompleted ? "completed" : "interrupted"}: ${newText.length} new chars, ${chunkCount} chunks`);
+
+        if (isContinuation) {
+          // Strip any fences Claude may have added to the continuation
+          const cleanedNew = stripFences(newText);
+          // Append continuation to the fence-stripped base
+          fullText = stripFences(fullText) + cleanedNew;
+          console.log(`[Script] After merge: ${fullText.length} total chars`);
+        } else {
+          fullText = newText;
+        }
+
         console.log(`[Script] First 200 chars: ${fullText.slice(0, 200)}`);
         console.log(`[Script] Last 200 chars: ${fullText.slice(-200)}`);
 
-        // Strip markdown fences and whitespace
-        let cleaned = fullText;
-        // Remove leading fence
-        cleaned = cleaned.replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "");
-        // Remove trailing fence
-        cleaned = cleaned.replace(/[\s\n]*```[\s\n]*$/i, "");
-        cleaned = cleaned.trim();
-
-        // Try parsing
+        // Strip fences and try parsing
+        const cleaned = stripFences(fullText);
         try {
           JSON.parse(cleaned);
           fullText = cleaned;
@@ -189,16 +199,9 @@ export default function UploadForm() {
           break;
         } catch (parseErr) {
           console.warn(`[Script] JSON parse failed:`, parseErr);
-          console.log(`[Script] Cleaned first 100: ${cleaned.slice(0, 100)}`);
-          console.log(`[Script] Cleaned last 100: ${cleaned.slice(-100)}`);
 
-          if (streamCompleted && attempt < MAX_CONTINUATIONS) {
-            // Stream finished but JSON is incomplete — Claude may have hit its own limit
-            console.log(`[Script] Stream completed but JSON incomplete, requesting continuation...`);
-            continue;
-          }
-          if (!streamCompleted && attempt < MAX_CONTINUATIONS) {
-            console.log(`[Script] Stream was cut off, requesting continuation...`);
+          if (attempt < MAX_CONTINUATIONS && fullText.length > 100) {
+            console.log(`[Script] Requesting continuation...`);
             continue;
           }
           throw new Error(`Script generation incomplete after ${attempt + 1} attempts. Collected ${fullText.length} chars. Last 100: ${cleaned.slice(-100)}`);
