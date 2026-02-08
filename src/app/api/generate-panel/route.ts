@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import Replicate from "replicate";
 import { verifyPassword } from "@/lib/auth";
-import { getOpenAIClient } from "@/lib/openai";
 import { buildPanelImagePrompt } from "@/lib/prompts";
-import { uploadPanelImage } from "@/lib/blob";
+import { uploadPanelImage, checkPanelExists } from "@/lib/blob";
 import type { GeneratePanelRequest, GeneratePanelResponse } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -27,26 +27,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const openai = getOpenAIClient();
-    const prompt = buildPanelImagePrompt(artworkPrompt, artStyle);
+    // Check if this panel already exists in blob storage
+    const existingUrl = await checkPanelExists(slug, panelIndex);
+    if (existingUrl) {
+      return NextResponse.json<GeneratePanelResponse>({
+        success: true,
+        imageUrl: existingUrl,
+        panelIndex,
+      });
+    }
 
-    const response = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "medium",
+    const replicate = new Replicate({
+      auth: process.env.REPLICATE_API_TOKEN,
     });
 
-    const imageData = response.data?.[0];
-    if (!imageData?.b64_json) {
+    const prompt = buildPanelImagePrompt(artworkPrompt, artStyle);
+
+    const output = await replicate.run("black-forest-labs/flux-1.1-pro", {
+      input: {
+        prompt,
+        width: 1024,
+        height: 1024,
+        prompt_upsampling: true,
+      },
+    });
+
+    // FLUX returns a URL string or a FileOutput object
+    let imageUrlFromReplicate: string;
+    if (typeof output === "string") {
+      imageUrlFromReplicate = output;
+    } else if (output && typeof output === "object" && "url" in output) {
+      imageUrlFromReplicate = (output as { url: () => string }).url();
+    } else {
       return NextResponse.json<GeneratePanelResponse>(
-        { success: false, error: "No image generated" },
+        { success: false, error: "Unexpected output format from Replicate" },
         { status: 500 }
       );
     }
 
-    const imageBuffer = Buffer.from(imageData.b64_json, "base64");
+    // Download the image and upload to Vercel Blob
+    const imageRes = await fetch(imageUrlFromReplicate);
+    if (!imageRes.ok) {
+      return NextResponse.json<GeneratePanelResponse>(
+        { success: false, error: "Failed to download generated image" },
+        { status: 500 }
+      );
+    }
+
+    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
     const imageUrl = await uploadPanelImage(imageBuffer, slug, panelIndex);
 
     return NextResponse.json<GeneratePanelResponse>({

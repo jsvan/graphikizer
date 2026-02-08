@@ -1,6 +1,23 @@
 import { put, list } from "@vercel/blob";
 import type { ArticleIndexEntry, ArticleManifest } from "./types";
 
+export async function checkPanelExists(
+  slug: string,
+  panelIndex: number
+): Promise<string | null> {
+  try {
+    const paddedIndex = String(panelIndex).padStart(3, "0");
+    const prefix = `articles/${slug}/panels/panel-${paddedIndex}`;
+    const { blobs } = await list({ prefix });
+    if (blobs.length > 0) {
+      return blobs[0].url;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function uploadPanelImage(
   imageBuffer: Buffer,
   slug: string,

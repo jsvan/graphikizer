@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const prompt = buildScriptPrompt(title, articleText);
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",

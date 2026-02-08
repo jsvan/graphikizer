@@ -173,7 +173,7 @@ export default function UploadForm() {
 
         <div>
           <label htmlFor="sourceUrl" className="block text-sm font-medium text-gray-300 mb-1">
-            Source URL <span className="text-gray-500">(optional)</span>
+            Source URL
           </label>
           <input
             id="sourceUrl"
@@ -181,6 +181,7 @@ export default function UploadForm() {
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
             placeholder="https://www.foreignaffairs.com/..."
+            required
             disabled={isGenerating}
             className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
           />
