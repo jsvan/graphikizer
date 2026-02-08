@@ -12,6 +12,51 @@ export const maxDuration = 60;
 const SYSTEM_PROMPT =
   "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source material — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.";
 
+/** Strip markdown fences and trim whitespace. */
+function stripFences(text: string): string {
+  return text
+    .replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "")
+    .replace(/[\s\n]*```[\s\n]*$/i, "")
+    .trim();
+}
+
+/** Escape control characters inside JSON string values. */
+function sanitizeJsonControlChars(text: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const code = text.charCodeAt(i);
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      result += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      result += ch;
+      continue;
+    }
+    if (inString && code <= 0x1f) {
+      if (ch === "\n") result += "\\n";
+      else if (ch === "\r") result += "\\r";
+      else if (ch === "\t") result += "\\t";
+      else result += `\\u${code.toString(16).padStart(4, "0")}`;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -65,7 +110,7 @@ export async function POST(req: NextRequest) {
           )
         : buildFirstChunkPrompt(title, articleChunk, chunkNumber, totalChunks);
 
-    const stream = anthropic.messages.stream({
+    const response = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 8000,
       messages: [{ role: "user", content: prompt }],
@@ -73,33 +118,12 @@ export async function POST(req: NextRequest) {
       temperature: 0.7,
     });
 
-    // Stream text deltas to the client as they arrive
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const event of stream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              controller.enqueue(encoder.encode(event.delta.text));
-            }
-          }
-          controller.close();
-        } catch (err) {
-          controller.error(err);
-        }
-      },
-    });
+    const rawText =
+      response.content[0].type === "text" ? response.content[0].text : "";
+    const cleaned = sanitizeJsonControlChars(stripFences(rawText));
+    const parsed = JSON.parse(cleaned);
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-        "Cache-Control": "no-cache",
-      },
-    });
+    return Response.json({ success: true, data: parsed });
   } catch (error) {
     console.error("Script generation error:", error);
     return Response.json(

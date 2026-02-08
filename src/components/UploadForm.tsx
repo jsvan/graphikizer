@@ -56,65 +56,6 @@ function groupIntoPages(
   return pages;
 }
 
-/** Strip markdown fences and trim whitespace. */
-function stripFences(text: string): string {
-  return text
-    .replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "")
-    .replace(/[\s\n]*```[\s\n]*$/i, "")
-    .trim();
-}
-
-/** Escape control characters inside JSON string values. */
-function sanitizeJsonControlChars(text: string): string {
-  let result = "";
-  let inString = false;
-  let escaped = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const code = text.charCodeAt(i);
-
-    if (escaped) {
-      result += ch;
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\" && inString) {
-      result += ch;
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      result += ch;
-      continue;
-    }
-    if (inString && code <= 0x1f) {
-      if (ch === "\n") result += "\\n";
-      else if (ch === "\r") result += "\\r";
-      else if (ch === "\t") result += "\\t";
-      else result += `\\u${code.toString(16).padStart(4, "0")}`;
-      continue;
-    }
-    result += ch;
-  }
-  return result;
-}
-
-/** Read a streaming response body to completion, returning the full text. */
-async function readStream(res: Response): Promise<string> {
-  if (!res.body) throw new Error("No response stream");
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    text += decoder.decode(value, { stream: true });
-  }
-  return text;
-}
-
 export default function UploadForm() {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -262,39 +203,18 @@ export default function UploadForm() {
           body: JSON.stringify(requestBody),
         });
 
-        if (!res.ok) {
-          let errMsg = `Server error ${res.status}`;
-          try {
-            const errData = await res.json();
-            errMsg = errData.error || errMsg;
-          } catch {
-            /* non-JSON error body */
-          }
-          throw new Error(`Chunk ${chunkNumber}: ${errMsg}`);
+        const result = await res.json();
+        if (!result.success) {
+          throw new Error(`Chunk ${chunkNumber}: ${result.error}`);
         }
 
-        const rawText = await readStream(res);
-        const cleaned = sanitizeJsonControlChars(stripFences(rawText));
+        const parsed = result.data as {
+          artStyle?: ArtStyle;
+          panels: ComicPanelType[];
+        };
         console.log(
-          `[Script] Chunk ${chunkNumber}: ${cleaned.length} chars`
+          `[Script] Chunk ${chunkNumber} OK: ${parsed.panels.length} panels`
         );
-
-        let parsed: { artStyle?: ArtStyle; panels: ComicPanelType[] };
-        try {
-          parsed = JSON.parse(cleaned);
-          console.log(
-            `[Script] Chunk ${chunkNumber} parsed OK: ${parsed.panels.length} panels`
-          );
-        } catch (parseErr) {
-          console.error(
-            `[Script] Chunk ${chunkNumber} parse failed:`,
-            parseErr
-          );
-          console.error(`[Script] Last 200 chars: ${cleaned.slice(-200)}`);
-          throw new Error(
-            `Chunk ${chunkNumber} JSON parse failed (${cleaned.length} chars)`
-          );
-        }
 
         if (isFirstChunk) {
           if (!parsed.artStyle) {
