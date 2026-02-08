@@ -12,19 +12,25 @@ ${articleText}
 
 CONTENT RULES (MOST IMPORTANT — read these first):
 
-1. COVER THE ENTIRE ARTICLE. Walk through the article paragraph by paragraph, in order. Do not skip sections. Do not cherry-pick a few quotes and ignore everything else. Every significant argument, data point, and piece of evidence in the article must appear somewhere in the comic's text overlays.
+1. COVER THE ENTIRE ARTICLE. Walk through the article paragraph by paragraph, in order. Do not skip sections. Every significant argument, data point, and piece of evidence must appear in the comic.
 
-2. NARRATION BOXES CARRY THE SUBSTANCE. Each narration overlay should be 2-4 full sentences of analytical content — the article's actual claims, reasoning, and evidence, rewritten in accessible but substantive language. Do NOT reduce paragraphs to single vague sentences like "Things began to change." Instead, explain WHAT changed, WHY, and what the implications are.
+2. DIALOGUE IS THE PRIMARY VEHICLE. This is a graphic novel, not an essay with pictures. The majority of content should be delivered through speech bubbles, not narration boxes. Follow these priorities:
+   a. DIRECT QUOTES from the article → dialogue overlay with real speaker name. Use the exact quote.
+   b. ARGUMENTS AND POSITIONS attributable to a person, country, or group → put them in a speech bubble. If the article says "Finland believes X" or "Stubb argues Y", that's dialogue for that speaker. If a paragraph presents someone's worldview, let them say it.
+   c. PARAPHRASED POSITIONS → create dialogue. If the article says "Critics contend that..." or "The global South demands...", write a speech bubble from a named representative or a labeled group spokesperson.
+   d. NARRATION ONLY for transitions, background context, and pure exposition that cannot be attributed to any actor. Narration should be short (1-2 sentences max) — just enough to bridge between dialogue panels. If you find yourself writing a 3-4 sentence narration box, ask: could a character say this instead?
 
-3. EVERY PANEL MUST HAVE AT LEAST ONE TEXT OVERLAY. Most panels should have 2 overlays (e.g., a narration box plus a caption, or narration plus dialogue). A panel with only a one-sentence caption and nothing else is a wasted panel.
+3. EVERY PANEL MUST HAVE AT LEAST ONE TEXT OVERLAY. Most panels should have 2-3 overlays. The ideal panel: a dialogue bubble + a caption (date/location). Or two characters in conversation. Panels with only narration should be the exception, not the rule.
 
-4. USE DIRECT QUOTES GENEROUSLY. When the article quotes someone, include that quote as a "dialogue" overlay with the speaker's name. These bring the comic to life and ground the analysis in real voices.
+4. AT LEAST 50% OF ALL PANELS must contain a dialogue overlay. If your script has 35 panels, at least 18 should have speech bubbles. Count them before finalizing.
 
-5. CAPTIONS PROVIDE CONTEXT. Use captions for dates, locations, statistics, and short contextual labels ("Berlin, 2024" or "Defense spending as % of GDP"). These orient the reader.
+5. CAPTIONS PROVIDE CONTEXT. Use captions liberally for dates, locations, statistics, and contextual labels ("Helsinki, 1975", "UN Security Council", "70% of global trade under WTO rules"). These orient the reader and reduce the need for narration.
 
-6. sourceExcerpt FIELD: For each panel, copy the specific passage (1-3 sentences) from the article that the panel is illustrating. This forces you to map panels to actual article content sequentially.
+6. sourceExcerpt FIELD: For each panel, copy the specific passage (1-3 sentences) from the article that the panel is illustrating. This maps panels to actual article content sequentially.
 
-7. AIM FOR 30-40 PANELS across 3-4 pages (~10 panels per page). A 3,000-word article needs this many panels to do justice to its content. If you find yourself with fewer than 25 panels, you are summarizing too aggressively.
+7. AIM FOR 30-40 PANELS across 3-4 pages (~10 panels per page). A 3,000-word article needs this many panels to do justice to its content.
+
+8. VARY OVERLAY POSITIONS. Do NOT put every overlay at x:5, y:5. Dialogue should be positioned near the speaker (often upper portion of panel). Narration can go in corners. Captions at top or bottom edges. Use the full range of positions and anchors.
 
 ---
 
