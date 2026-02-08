@@ -30,6 +30,7 @@ export async function uploadPanelImage(
     access: "public",
     contentType: "image/webp",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 
   return blob.url;
@@ -42,6 +43,7 @@ export async function saveManifest(manifest: ArticleManifest): Promise<string> {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 
   return blob.url;
@@ -90,6 +92,7 @@ export async function updateArticleIndex(entry: ArticleIndexEntry): Promise<void
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 }
 
@@ -101,6 +104,7 @@ export async function removeFromArticleIndex(slug: string): Promise<void> {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 }
 
@@ -127,6 +131,7 @@ export async function saveScript(slug: string, rawJson: string): Promise<string>
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
+    allowOverwrite: true,
   });
 
   return blob.url;
