@@ -174,8 +174,16 @@ export default function UploadForm() {
         const isContinuation = attempt > 0;
         console.log(`[Script] Attempt ${attempt + 1}/${MAX_CONTINUATIONS + 1}${isContinuation ? " (continuation)" : ""}, collected so far: ${fullText.length} chars`);
 
-        // For continuations, send the cleaned (fence-stripped) text
-        const partialForContinuation = isContinuation ? stripFences(fullText) : undefined;
+        // For continuations: strip fences, then trim to last complete line
+        // so the prefill ends at a clean JSON boundary (not mid-string).
+        // Claude regenerates the partial line, giving us a clean seam.
+        let basePrefill: string | undefined;
+        if (isContinuation) {
+          const stripped = stripFences(fullText);
+          const lastNewline = stripped.lastIndexOf("\n");
+          basePrefill = lastNewline > 0 ? stripped.substring(0, lastNewline) : stripped;
+          console.log(`[Script] Trimmed prefill: ${basePrefill.length} chars (cut ${stripped.length - basePrefill.length} trailing chars)`);
+        }
 
         const res = await fetch("/api/generate-script", {
           method: "POST",
@@ -185,7 +193,7 @@ export default function UploadForm() {
             sourceUrl,
             articleText,
             password,
-            ...(partialForContinuation ? { partialResponse: partialForContinuation } : {}),
+            ...(basePrefill ? { partialResponse: basePrefill } : {}),
           }),
         });
 
@@ -224,10 +232,9 @@ export default function UploadForm() {
         console.log(`[Script] Stream ${streamCompleted ? "completed" : "interrupted"}: ${newText.length} new chars, ${chunkCount} chunks`);
 
         if (isContinuation) {
-          // Strip any fences Claude may have added to the continuation
+          // Merge using the same trimmed base that Claude saw as its prefill
           const cleanedNew = stripFences(newText);
-          // Append continuation to the fence-stripped base
-          fullText = stripFences(fullText) + cleanedNew;
+          fullText = basePrefill + "\n" + cleanedNew;
           console.log(`[Script] After merge: ${fullText.length} total chars`);
         } else {
           fullText = newText;
