@@ -29,15 +29,16 @@ CONTENT RULES (MOST IMPORTANT — read these first):
 ---
 
 ART STYLE:
-Choose ONE style that matches the article's tone:
-- "Cold War Propaganda Poster" — bold, flat colors, heroic/ominous. Geopolitics, power rivalry.
-- "European Ligne Claire" — clean outlines, flat fills (Tintin). European politics, diplomacy.
-- "Dark Graphic Novel" — heavy shadows, muted palette. Conflict, security, dark topics.
-- "Watercolor Editorial" — soft washes, expressive. Cultural, humanitarian, reflective.
-- "Retro-Futurist" — mid-century sci-fi. Technology, AI, future-focused.
-- "Ukiyo-e Inspired" — Japanese woodblock style. East Asian geopolitics.
-- "Socialist Realism" — monumental figures, warm palette. Authoritarianism, state power.
-- Or invent a style if none fit.
+Choose ONE style that matches the article's tone. DO NOT default to dark/gritty styles — most Foreign Affairs articles are analytical, not apocalyptic. Prefer styles with color, energy, and visual variety. Only use dark palettes when the article is genuinely about tragedy, war, or crisis.
+- "European Ligne Claire" — clean outlines, flat vivid fills (Tintin/Hergé). Great default for politics, diplomacy, international relations.
+- "Watercolor Editorial" — soft washes, warm expressive colors. Cultural, humanitarian, economic, or reflective pieces.
+- "Cold War Propaganda Poster" — bold, saturated flat colors, heroic/dramatic compositions. Power rivalry, strategic competition.
+- "Retro-Futurist" — mid-century sci-fi aesthetic, optimistic palette. Technology, AI, space, future-focused.
+- "Pop Art Political" — Lichtenstein-style bold colors, halftone dots, high contrast. Domestic politics, elections, personalities.
+- "Ukiyo-e Inspired" — Japanese woodblock style, rich natural palette. East Asian geopolitics.
+- "Socialist Realism" — monumental figures, warm earthy palette. Authoritarianism, state power.
+- "Dark Graphic Novel" — heavy shadows, muted palette. ONLY for articles specifically about active conflict, violence, or humanitarian crisis.
+- Or invent a style if none fit. Be creative — match the article's actual subject, not a generic "serious = dark" assumption.
 
 PANEL LAYOUT (each panel gets a "layout" field):
 - "normal" (2-col span, ~60%) — standard panel
