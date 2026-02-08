@@ -115,9 +115,11 @@ export default function UploadForm() {
     try {
       // Step 1: Generate script via streaming with continuation
       let fullText = "";
+      let streamCompleted = false;
 
       for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
-        const iscontinuation = attempt > 0;
+        const isContinuation = attempt > 0;
+        console.log(`[Script] Attempt ${attempt + 1}/${MAX_CONTINUATIONS + 1}${isContinuation ? " (continuation)" : ""}, collected so far: ${fullText.length} chars`);
 
         const res = await fetch("/api/generate-script", {
           method: "POST",
@@ -127,50 +129,79 @@ export default function UploadForm() {
             sourceUrl,
             articleText,
             password,
-            ...(iscontinuation ? { partialResponse: fullText } : {}),
+            ...(isContinuation ? { partialResponse: fullText } : {}),
           }),
         });
 
         if (!res.ok) {
-          // Try to parse error JSON from non-streaming error responses
+          let errMsg = `Server error ${res.status}`;
           try {
             const errData = await res.json();
-            throw new Error(errData.error || `Server error ${res.status}`);
-          } catch {
-            throw new Error(`Server error ${res.status}`);
-          }
+            errMsg = errData.error || errMsg;
+          } catch { /* non-JSON error body */ }
+          console.error(`[Script] Server error:`, errMsg);
+          throw new Error(errMsg);
         }
 
         if (!res.body) throw new Error("No response stream");
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        let chunkCount = 0;
+        streamCompleted = false;
 
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) {
+              streamCompleted = true;
+              break;
+            }
             fullText += decoder.decode(value, { stream: true });
+            chunkCount++;
           }
-        } catch {
-          // Connection dropped (504 timeout) — we have partial text
+        } catch (streamErr) {
+          console.warn(`[Script] Stream interrupted after ${chunkCount} chunks, ${fullText.length} chars total. Error:`, streamErr);
           if (attempt < MAX_CONTINUATIONS && fullText.length > 0) {
-            continue; // retry with continuation
+            console.log(`[Script] Will retry with continuation...`);
+            continue;
           }
           throw new Error("Connection lost and max retries exceeded");
         }
 
-        // Check if we got valid complete JSON
-        const cleaned = fullText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        console.log(`[Script] Stream ${streamCompleted ? "completed" : "interrupted"}: ${fullText.length} chars, ${chunkCount} chunks`);
+        console.log(`[Script] First 200 chars: ${fullText.slice(0, 200)}`);
+        console.log(`[Script] Last 200 chars: ${fullText.slice(-200)}`);
+
+        // Strip markdown fences and whitespace
+        let cleaned = fullText;
+        // Remove leading fence
+        cleaned = cleaned.replace(/^[\s\n]*```(?:json)?[\s\n]*/i, "");
+        // Remove trailing fence
+        cleaned = cleaned.replace(/[\s\n]*```[\s\n]*$/i, "");
+        cleaned = cleaned.trim();
+
+        // Try parsing
         try {
           JSON.parse(cleaned);
           fullText = cleaned;
-          break; // valid JSON, done
-        } catch {
-          if (attempt < MAX_CONTINUATIONS) {
-            continue; // JSON incomplete, continue
+          console.log(`[Script] Valid JSON! ${cleaned.length} chars`);
+          break;
+        } catch (parseErr) {
+          console.warn(`[Script] JSON parse failed:`, parseErr);
+          console.log(`[Script] Cleaned first 100: ${cleaned.slice(0, 100)}`);
+          console.log(`[Script] Cleaned last 100: ${cleaned.slice(-100)}`);
+
+          if (streamCompleted && attempt < MAX_CONTINUATIONS) {
+            // Stream finished but JSON is incomplete — Claude may have hit its own limit
+            console.log(`[Script] Stream completed but JSON incomplete, requesting continuation...`);
+            continue;
           }
-          throw new Error("Script generation incomplete after all retries");
+          if (!streamCompleted && attempt < MAX_CONTINUATIONS) {
+            console.log(`[Script] Stream was cut off, requesting continuation...`);
+            continue;
+          }
+          throw new Error(`Script generation incomplete after ${attempt + 1} attempts. Collected ${fullText.length} chars. Last 100: ${cleaned.slice(-100)}`);
         }
       }
 
