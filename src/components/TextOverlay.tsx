@@ -36,15 +36,8 @@ export default function TextOverlay({
     const el = elRef.current;
     if (!drag || !el) return;
     e.preventDefault();
-    // Use fixed positioning during drag so the overlay floats above everything
-    el.style.position = "fixed";
-    el.style.width = `${drag.origWidth}px`;
-    el.style.maxWidth = "none";
     el.style.left = `${drag.origViewportLeft + (e.clientX - drag.startX)}px`;
     el.style.top = `${drag.origViewportTop + (e.clientY - drag.startY)}px`;
-    el.style.right = "auto";
-    el.style.bottom = "auto";
-    el.style.transform = "none";
   }, []);
 
   const onMouseUp = useCallback(
@@ -57,19 +50,25 @@ export default function TextOverlay({
         return;
       }
 
-      // Restore styles
-      el.style.position = "absolute";
-      el.style.width = "";
-      el.style.maxWidth = "";
-      el.style.cursor = "grab";
-      el.style.zIndex = "10";
-
       // Convert final viewport position to percentage of parent
       const parentRect = el.parentElement.getBoundingClientRect();
       const finalViewportLeft = dragRef.current!.origViewportLeft + (e.clientX - dragRef.current!.startX);
       const finalViewportTop = dragRef.current!.origViewportTop + (e.clientY - dragRef.current!.startY);
       const xPct = ((finalViewportLeft - parentRect.left) / parentRect.width) * 100;
       const yPct = ((finalViewportTop - parentRect.top) / parentRect.height) * 100;
+
+      // Restore to absolute positioning
+      el.style.position = "absolute";
+      el.style.width = "";
+      el.style.height = "";
+      el.style.maxWidth = "";
+      el.style.left = "";
+      el.style.top = "";
+      el.style.right = "";
+      el.style.bottom = "";
+      el.style.transform = "";
+      el.style.cursor = "grab";
+      el.style.zIndex = "10";
 
       dragRef.current = null;
       document.removeEventListener("mousemove", onMouseMove);
@@ -91,7 +90,8 @@ export default function TextOverlay({
       e.preventDefault();
       e.stopPropagation();
 
-      // Capture viewport position and current pixel width
+      // Snapshot exact dimensions and viewport position, then immediately
+      // switch to fixed positioning with locked pixel size
       const rect = el.getBoundingClientRect();
 
       dragRef.current = {
@@ -101,6 +101,17 @@ export default function TextOverlay({
         origViewportTop: rect.top,
         origWidth: rect.width,
       };
+
+      // Lock everything in one shot — no intermediate frames
+      el.style.position = "fixed";
+      el.style.width = `${rect.width}px`;
+      el.style.height = `${rect.height}px`;
+      el.style.maxWidth = "none";
+      el.style.left = `${rect.left}px`;
+      el.style.top = `${rect.top}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      el.style.transform = "none";
       el.style.cursor = "grabbing";
       el.style.zIndex = "9999";
 
