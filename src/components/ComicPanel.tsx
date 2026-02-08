@@ -20,36 +20,63 @@ export default function ComicPanel({ panel, editable, onOverlayPositionChange }:
   const { imageUrl, overlays, layout } = panel;
   const gridClass = layoutClasses[layout] || layoutClasses.normal;
 
+  const hasDialogue = overlays.some((o) => o.type === "dialogue");
+
+  // When dialogue is present, narration renders below the image instead of on top
+  const aboveOverlays = overlays
+    .map((o, i) => ({ overlay: o, index: i }))
+    .filter(({ overlay }) => !(hasDialogue && overlay.type === "narration"));
+
+  const belowOverlays = overlays
+    .map((o, i) => ({ overlay: o, index: i }))
+    .filter(({ overlay }) => hasDialogue && overlay.type === "narration");
+
   return (
-    <div
-      className={`${gridClass} relative overflow-hidden border-2 border-gray-800 bg-gray-900`}
-      style={{ minHeight: layout === "tall" || layout === "large" ? 400 : 200 }}
-    >
-      {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={`Panel ${panel.panelIndex + 1}`}
-          className="w-full h-full object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-gray-600">
-          <span className="text-sm">Panel {panel.panelIndex + 1}</span>
+    <div className={`${gridClass} flex flex-col border-2 border-gray-800 bg-gray-900`}>
+      {/* Image + absolute overlays */}
+      <div
+        className="relative overflow-hidden flex-1"
+        style={{ minHeight: layout === "tall" || layout === "large" ? 400 : 200 }}
+      >
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={`Panel ${panel.panelIndex + 1}`}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-600">
+            <span className="text-sm">Panel {panel.panelIndex + 1}</span>
+          </div>
+        )}
+
+        {aboveOverlays.map(({ overlay, index }) => (
+          <TextOverlay
+            key={index}
+            overlay={overlay}
+            editable={editable}
+            onPositionChange={
+              onOverlayPositionChange
+                ? (x, y) => onOverlayPositionChange(index, x, y)
+                : undefined
+            }
+          />
+        ))}
+      </div>
+
+      {/* Narration below image */}
+      {belowOverlays.length > 0 && (
+        <div className="space-y-px">
+          {belowOverlays.map(({ overlay, index }) => (
+            <TextOverlay
+              key={index}
+              overlay={overlay}
+              renderBelow
+            />
+          ))}
         </div>
       )}
-
-      {overlays.map((overlay, i) => (
-        <TextOverlay
-          key={i}
-          overlay={overlay}
-          editable={editable}
-          onPositionChange={
-            onOverlayPositionChange
-              ? (x, y) => onOverlayPositionChange(i, x, y)
-              : undefined
-          }
-        />
-      ))}
     </div>
   );
 }

@@ -7,12 +7,15 @@ interface TextOverlayProps {
   overlay: TextOverlayType;
   editable?: boolean;
   onPositionChange?: (x: number, y: number) => void;
+  /** Render as static block below the image instead of absolute overlay */
+  renderBelow?: boolean;
 }
 
-export default function TextOverlay({ overlay, editable, onPositionChange }: TextOverlayProps) {
+export default function TextOverlay({ overlay, editable, onPositionChange, renderBelow }: TextOverlayProps) {
   const { type, text, x, y, anchor, maxWidthPercent = 40, speaker } = overlay;
   const elRef = useRef<HTMLDivElement>(null);
-  const dragState = useRef<{ startX: number; startY: number } | null>(null);
+  // startX/startY = pointer offset within element (pixels from element top-left)
+  const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!editable) return;
@@ -20,11 +23,13 @@ export default function TextOverlay({ overlay, editable, onPositionChange }: Tex
     if (!el) return;
     e.preventDefault();
     e.stopPropagation();
+    const rect = el.getBoundingClientRect();
     dragState.current = {
-      startX: e.clientX - el.offsetLeft,
-      startY: e.clientY - el.offsetTop,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
     };
     el.setPointerCapture(e.pointerId);
+    el.style.cursor = "grabbing";
   }, [editable]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -33,17 +38,16 @@ export default function TextOverlay({ overlay, editable, onPositionChange }: Tex
     if (!el || !el.parentElement) return;
     e.preventDefault();
 
-    const parent = el.parentElement;
-    let newLeft = e.clientX - dragState.current.startX;
-    let newTop = e.clientY - dragState.current.startY;
+    const parentRect = el.parentElement.getBoundingClientRect();
+    let newLeft = e.clientX - dragState.current.offsetX - parentRect.left;
+    let newTop = e.clientY - dragState.current.offsetY - parentRect.top;
 
     // Clamp to parent bounds
-    newLeft = Math.max(0, Math.min(newLeft, parent.clientWidth - el.offsetWidth));
-    newTop = Math.max(0, Math.min(newTop, parent.clientHeight - el.offsetHeight));
+    newLeft = Math.max(0, Math.min(newLeft, parentRect.width - el.offsetWidth));
+    newTop = Math.max(0, Math.min(newTop, parentRect.height - el.offsetHeight));
 
     el.style.left = `${newLeft}px`;
     el.style.top = `${newTop}px`;
-    // Override any right/bottom/transform that anchor positioning may have set
     el.style.right = "auto";
     el.style.bottom = "auto";
     el.style.transform = "none";
@@ -55,10 +59,11 @@ export default function TextOverlay({ overlay, editable, onPositionChange }: Tex
     if (!el || !el.parentElement) return;
 
     el.releasePointerCapture(e.pointerId);
+    el.style.cursor = "grab";
 
-    const parent = el.parentElement;
-    const xPercent = (el.offsetLeft / parent.clientWidth) * 100;
-    const yPercent = (el.offsetTop / parent.clientHeight) * 100;
+    const parentRect = el.parentElement.getBoundingClientRect();
+    const xPercent = (el.offsetLeft / parentRect.width) * 100;
+    const yPercent = (el.offsetTop / parentRect.height) * 100;
 
     dragState.current = null;
     onPositionChange?.(
@@ -67,6 +72,24 @@ export default function TextOverlay({ overlay, editable, onPositionChange }: Tex
     );
   }, [editable, onPositionChange]);
 
+  // --- Below-image rendering (static flow, no absolute positioning) ---
+  if (renderBelow) {
+    if (type === "narration") {
+      return (
+        <div className="bg-black/90 border-l-2 border-amber-400 px-3 py-2 text-gray-100 text-sm italic leading-snug">
+          {text}
+        </div>
+      );
+    }
+    // Captions below
+    return (
+      <div className="bg-black/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+        {text}
+      </div>
+    );
+  }
+
+  // --- Absolute overlay rendering ---
   const positionStyle: React.CSSProperties = {
     position: "absolute",
     maxWidth: `${maxWidthPercent}%`,
@@ -74,13 +97,11 @@ export default function TextOverlay({ overlay, editable, onPositionChange }: Tex
   };
 
   if (editable) {
-    // In edit mode always use top-left positioning for consistent drag math
     positionStyle.left = `${x}%`;
     positionStyle.top = `${y}%`;
     positionStyle.cursor = "grab";
     positionStyle.touchAction = "none";
   } else {
-    // Position based on anchor
     if (anchor === "top-left" || anchor === "bottom-left") {
       positionStyle.left = `${x}%`;
     } else if (anchor === "top-right" || anchor === "bottom-right") {
@@ -134,7 +155,6 @@ export default function TextOverlay({ overlay, editable, onPositionChange }: Tex
         )}
         <div className="bg-white text-gray-900 rounded-lg px-3 py-2 text-sm leading-snug shadow-md relative">
           {text}
-          {/* Speech bubble tail */}
           <div className="absolute -bottom-1.5 left-4 w-3 h-3 bg-white rotate-45" />
         </div>
       </div>
