@@ -15,7 +15,7 @@ export default function ComicPage({ page, editable, onOverlayPositionChange, onO
   return (
     <div className="w-full max-w-[1728px] mx-auto">
       <div
-        className="comic-grid grid gap-3 bg-black p-4"
+        className="comic-grid grid gap-3 bg-black p-12"
         style={{
           gridTemplateColumns: "repeat(6, 190px)",
           justifyContent: "center",

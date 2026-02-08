@@ -34,18 +34,23 @@ export default function ComicPanel({ panel, editable, onOverlayPositionChange, o
     .map((o, i) => ({ overlay: o, index: i }))
     .filter(({ overlay }) => hasDialogue && overlay.type === "narration");
 
-  // Panel margin drag support
+  // Panel drag support — uses transform: translate() so it works in grid
+  const panelElRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     startX: number;
     startY: number;
-    origMargins: PanelMargins;
+    origLeft: number;
+    origTop: number;
   } | null>(null);
 
   const onPanelMouseMove = useCallback((e: MouseEvent) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    const el = panelElRef.current;
+    if (!drag || !el) return;
     e.preventDefault();
-    // Not visually moving during drag — we apply on release
+    const dx = drag.origLeft + (e.clientX - drag.startX);
+    const dy = drag.origTop + (e.clientY - drag.startY);
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
   }, []);
 
   const onPanelMouseUp = useCallback(
@@ -53,14 +58,9 @@ export default function ComicPanel({ panel, editable, onOverlayPositionChange, o
       const drag = dragRef.current;
       if (!drag) return;
 
-      const dx = e.clientX - drag.startX;
-      const dy = e.clientY - drag.startY;
-
       const newMargins: PanelMargins = {
-        top: Math.max(0, (drag.origMargins.top || 0) + dy),
-        left: Math.max(0, (drag.origMargins.left || 0) + dx),
-        bottom: drag.origMargins.bottom || 0,
-        right: drag.origMargins.right || 0,
+        left: drag.origLeft + (e.clientX - drag.startX),
+        top: drag.origTop + (e.clientY - drag.startY),
       };
 
       dragRef.current = null;
@@ -74,14 +74,13 @@ export default function ComicPanel({ panel, editable, onOverlayPositionChange, o
   const onPanelMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!editable || !onPanelMarginChange) return;
-      // Only start panel drag on the border area (not on overlays)
-      if ((e.target as HTMLElement).closest("[data-overlay]")) return;
       e.preventDefault();
 
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
-        origMargins: panelMargins || {},
+        origLeft: panelMargins?.left || 0,
+        origTop: panelMargins?.top || 0,
       };
 
       document.addEventListener("mousemove", onPanelMouseMove);
@@ -90,21 +89,17 @@ export default function ComicPanel({ panel, editable, onOverlayPositionChange, o
     [editable, onPanelMarginChange, panelMargins, onPanelMouseMove, onPanelMouseUp]
   );
 
-  const marginStyle: React.CSSProperties = panelMargins
-    ? {
-        marginTop: panelMargins.top || 0,
-        marginRight: panelMargins.right || 0,
-        marginBottom: panelMargins.bottom || 0,
-        marginLeft: panelMargins.left || 0,
-      }
-    : {};
+  const offsetX = panelMargins?.left || 0;
+  const offsetY = panelMargins?.top || 0;
 
   return (
     <div
+      ref={panelElRef}
       className={`${gridClass} flex flex-col border-2 border-gray-800 bg-gray-900`}
       style={{
-        ...marginStyle,
         overflow: "visible",
+        transform: (offsetX || offsetY) ? `translate(${offsetX}px, ${offsetY}px)` : undefined,
+        zIndex: (offsetX || offsetY) ? 5 : undefined,
         ...(editable && onPanelMarginChange ? { cursor: "move" } : {}),
       }}
       onMouseDown={onPanelMouseDown}
