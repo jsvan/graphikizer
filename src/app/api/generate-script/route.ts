@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
           )
         : buildFirstChunkPrompt(title, articleChunk, chunkNumber, totalChunks);
 
-    const response = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 8000,
       messages: [{ role: "user", content: prompt }],
@@ -118,12 +118,49 @@ export async function POST(req: NextRequest) {
       temperature: 0.7,
     });
 
-    const rawText =
-      response.content[0].type === "text" ? response.content[0].text : "";
-    const cleaned = sanitizeJsonControlChars(stripFences(rawText));
-    const parsed = JSON.parse(cleaned);
+    // Stream keepalive newlines to the client while Claude generates,
+    // then send the parsed JSON as the final line.
+    let fullText = "";
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              fullText += event.delta.text;
+              controller.enqueue(encoder.encode("\n"));
+            }
+          }
+          const cleaned = sanitizeJsonControlChars(stripFences(fullText));
+          const parsed = JSON.parse(cleaned);
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ success: true, data: parsed }))
+          );
+        } catch (err) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                success: false,
+                error:
+                  err instanceof Error ? err.message : "Generation failed",
+              })
+            )
+          );
+        }
+        controller.close();
+      },
+    });
 
-    return Response.json({ success: true, data: parsed });
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+      },
+    });
   } catch (error) {
     console.error("Script generation error:", error);
     return Response.json(

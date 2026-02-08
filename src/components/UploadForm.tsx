@@ -203,7 +203,14 @@ export default function UploadForm() {
           body: JSON.stringify(requestBody),
         });
 
-        const result = await res.json();
+        if (!res.ok) {
+          throw new Error(`Chunk ${chunkNumber}: server error ${res.status}`);
+        }
+
+        // Server streams keepalive newlines, then JSON as the final line
+        const text = await res.text();
+        const lines = text.split("\n").filter(Boolean);
+        const result = JSON.parse(lines[lines.length - 1]);
         if (!result.success) {
           throw new Error(`Chunk ${chunkNumber}: ${result.error}`);
         }
