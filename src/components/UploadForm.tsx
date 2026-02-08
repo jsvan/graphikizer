@@ -14,7 +14,7 @@ import type {
 import GenerationProgress from "./GenerationProgress";
 
 const CONCURRENCY_LIMIT = 5;
-const TARGET_WORDS_PER_CHUNK = 800;
+const TARGET_WORDS_PER_CHUNK = 600;
 const PANELS_PER_PAGE = 10;
 
 /** Split article text into chunks on paragraph boundaries. */
@@ -256,81 +256,45 @@ export default function UploadForm() {
               startPanelIndex: allPanels.length,
             };
 
-        // Try generating, with up to 2 continuation retries if truncated
-        const MAX_CHUNK_RETRIES = 3;
-        let fullText = "";
-        let parsed: { artStyle?: ArtStyle; panels: ComicPanelType[] } | null =
-          null;
+        const res = await fetch("/api/generate-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
 
-        for (let attempt = 0; attempt < MAX_CHUNK_RETRIES; attempt++) {
-          const body =
-            attempt === 0
-              ? requestBody
-              : { ...requestBody, partialResponse: stripFences(fullText) };
-
-          if (attempt > 0) {
-            console.log(
-              `[Script] Chunk ${chunkNumber} retry ${attempt} with ${fullText.length} char prefill`
-            );
-          }
-
-          const res = await fetch("/api/generate-script", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-
-          if (!res.ok) {
-            let errMsg = `Server error ${res.status}`;
-            try {
-              const errData = await res.json();
-              errMsg = errData.error || errMsg;
-            } catch {
-              /* non-JSON error body */
-            }
-            throw new Error(`Chunk ${chunkNumber}: ${errMsg}`);
-          }
-
-          const rawText = await readStream(res);
-
-          if (attempt === 0) {
-            fullText = rawText;
-          } else {
-            // Prefill continuation: prepend the trimmed base + new tokens
-            const base = stripFences(fullText);
-            const lastNl = base.lastIndexOf("\n");
-            const trimmed = lastNl > 0 ? base.substring(0, lastNl) : base;
-            fullText = trimmed + rawText;
-          }
-
-          const cleaned = sanitizeJsonControlChars(stripFences(fullText));
-          console.log(
-            `[Script] Chunk ${chunkNumber} (attempt ${attempt + 1}): ${cleaned.length} chars`
-          );
-
+        if (!res.ok) {
+          let errMsg = `Server error ${res.status}`;
           try {
-            parsed = JSON.parse(cleaned);
-            console.log(
-              `[Script] Chunk ${chunkNumber} parsed OK: ${parsed!.panels.length} panels`
-            );
-            break;
-          } catch (parseErr) {
-            console.warn(
-              `[Script] Chunk ${chunkNumber} attempt ${attempt + 1} parse failed:`,
-              parseErr
-            );
-            if (attempt >= MAX_CHUNK_RETRIES - 1) {
-              console.error(
-                `[Script] Last 200 chars: ${cleaned.slice(-200)}`
-              );
-              throw new Error(
-                `Chunk ${chunkNumber} incomplete after ${MAX_CHUNK_RETRIES} attempts. ${cleaned.length} chars.`
-              );
-            }
+            const errData = await res.json();
+            errMsg = errData.error || errMsg;
+          } catch {
+            /* non-JSON error body */
           }
+          throw new Error(`Chunk ${chunkNumber}: ${errMsg}`);
         }
 
-        if (!parsed) throw new Error(`Chunk ${chunkNumber} failed`);
+        const rawText = await readStream(res);
+        const cleaned = sanitizeJsonControlChars(stripFences(rawText));
+        console.log(
+          `[Script] Chunk ${chunkNumber}: ${cleaned.length} chars`
+        );
+
+        let parsed: { artStyle?: ArtStyle; panels: ComicPanelType[] };
+        try {
+          parsed = JSON.parse(cleaned);
+          console.log(
+            `[Script] Chunk ${chunkNumber} parsed OK: ${parsed.panels.length} panels`
+          );
+        } catch (parseErr) {
+          console.error(
+            `[Script] Chunk ${chunkNumber} parse failed:`,
+            parseErr
+          );
+          console.error(`[Script] Last 200 chars: ${cleaned.slice(-200)}`);
+          throw new Error(
+            `Chunk ${chunkNumber} JSON parse failed (${cleaned.length} chars)`
+          );
+        }
 
         if (isFirstChunk) {
           if (!parsed.artStyle) {
