@@ -58,6 +58,7 @@ ARTWORK DESCRIPTIONS:
 - 2-4 sentences per description, vivid and specific
 - Reference the chosen art style in each description
 - Include composition details: foreground/background, camera angle, lighting
+- USE REAL NAMES, NOT GENERIC TITLES. Write "Emmanuel Macron" not "the French leader", "Olaf Scholz" not "the German chancellor", "a NATO summit in Brussels" not "a meeting between Western leaders". When the article names a person, your artwork description must use that name. Generic descriptions like "two European leaders shaking hands" produce stereotypical clip-art. Specific names produce recognizable, grounded imagery tied to the real article.
 
 ---
 
