@@ -49,6 +49,7 @@ export default function TextOverlay({
       }
 
       el.style.cursor = "grab";
+      el.style.zIndex = "10";
 
       // Convert pixel position to percentage of parent
       const parentRect = el.parentElement.getBoundingClientRect();
@@ -59,6 +60,7 @@ export default function TextOverlay({
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
 
+      console.log("[Drag] released at", Math.round(xPct), Math.round(yPct));
       onPositionChange?.(
         Math.round(xPct * 100) / 100,
         Math.round(yPct * 100) / 100
@@ -69,24 +71,30 @@ export default function TextOverlay({
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      console.log("[Drag] mousedown, editable:", editable, "type:", type);
       if (!editable) return;
       const el = elRef.current;
       if (!el) return;
       e.preventDefault();
       e.stopPropagation();
 
+      const origLeft = el.offsetLeft;
+      const origTop = el.offsetTop;
+      console.log("[Drag] start at", origLeft, origTop);
+
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
-        origLeft: el.offsetLeft,
-        origTop: el.offsetTop,
+        origLeft,
+        origTop,
       };
       el.style.cursor = "grabbing";
+      el.style.zIndex = "50";
 
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [editable, onMouseMove, onMouseUp]
+    [editable, type, onMouseMove, onMouseUp]
   );
 
   // Cleanup listeners on unmount
@@ -124,6 +132,8 @@ export default function TextOverlay({
     positionStyle.left = `${x}%`;
     positionStyle.top = `${y}%`;
     positionStyle.cursor = "grab";
+    positionStyle.userSelect = "none";
+    positionStyle.WebkitUserSelect = "none";
   } else {
     if (anchor === "top-left" || anchor === "bottom-left") {
       positionStyle.left = `${x}%`;
