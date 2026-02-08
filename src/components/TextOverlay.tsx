@@ -7,6 +7,7 @@ interface TextOverlayProps {
   overlay: TextOverlayType;
   editable?: boolean;
   onPositionChange?: (x: number, y: number) => void;
+  onResize?: (maxWidthPercent: number) => void;
   /** Render as static block below the image instead of absolute overlay */
   renderBelow?: boolean;
 }
@@ -15,15 +16,19 @@ export default function TextOverlay({
   overlay,
   editable,
   onPositionChange,
+  onResize,
   renderBelow,
 }: TextOverlayProps) {
   const { type, text, x, y, anchor, maxWidthPercent = 40, speaker } = overlay;
   const elRef = useRef<HTMLDivElement>(null);
+
+  // --- Move drag ---
   const dragRef = useRef<{
     startX: number;
     startY: number;
     origViewportLeft: number;
     origViewportTop: number;
+    origWidth: number;
   } | null>(null);
 
   const onMouseMove = useCallback((e: MouseEvent) => {
@@ -33,6 +38,8 @@ export default function TextOverlay({
     e.preventDefault();
     // Use fixed positioning during drag so the overlay floats above everything
     el.style.position = "fixed";
+    el.style.width = `${drag.origWidth}px`;
+    el.style.maxWidth = "none";
     el.style.left = `${drag.origViewportLeft + (e.clientX - drag.startX)}px`;
     el.style.top = `${drag.origViewportTop + (e.clientY - drag.startY)}px`;
     el.style.right = "auto";
@@ -50,8 +57,10 @@ export default function TextOverlay({
         return;
       }
 
-      // Restore to absolute positioning
+      // Restore styles
       el.style.position = "absolute";
+      el.style.width = "";
+      el.style.maxWidth = "";
       el.style.cursor = "grab";
       el.style.zIndex = "10";
 
@@ -82,7 +91,7 @@ export default function TextOverlay({
       e.preventDefault();
       e.stopPropagation();
 
-      // Capture viewport position before switching to fixed
+      // Capture viewport position and current pixel width
       const rect = el.getBoundingClientRect();
 
       dragRef.current = {
@@ -90,6 +99,7 @@ export default function TextOverlay({
         startY: e.clientY,
         origViewportLeft: rect.left,
         origViewportTop: rect.top,
+        origWidth: rect.width,
       };
       el.style.cursor = "grabbing";
       el.style.zIndex = "9999";
@@ -100,13 +110,81 @@ export default function TextOverlay({
     [editable, onMouseMove, onMouseUp]
   );
 
+  // --- Resize drag (right edge) ---
+  const resizeRef = useRef<{
+    startX: number;
+    origWidth: number;
+    parentWidth: number;
+  } | null>(null);
+
+  const onResizeMove = useCallback((e: MouseEvent) => {
+    const resize = resizeRef.current;
+    const el = elRef.current;
+    if (!resize || !el) return;
+    e.preventDefault();
+    const newWidth = Math.max(40, resize.origWidth + (e.clientX - resize.startX));
+    el.style.width = `${newWidth}px`;
+    el.style.maxWidth = "none";
+  }, []);
+
+  const onResizeUp = useCallback(
+    (e: MouseEvent) => {
+      const resize = resizeRef.current;
+      const el = elRef.current;
+      if (!resize || !el) {
+        resizeRef.current = null;
+        document.removeEventListener("mousemove", onResizeMove);
+        document.removeEventListener("mouseup", onResizeUp);
+        return;
+      }
+
+      const newWidth = Math.max(40, resize.origWidth + (e.clientX - resize.startX));
+      const newMaxWidthPct = Math.round((newWidth / resize.parentWidth) * 100 * 100) / 100;
+
+      // Restore styles
+      el.style.width = "";
+      el.style.maxWidth = "";
+
+      resizeRef.current = null;
+      document.removeEventListener("mousemove", onResizeMove);
+      document.removeEventListener("mouseup", onResizeUp);
+
+      onResize?.(Math.max(5, Math.min(100, newMaxWidthPct)));
+    },
+    [onResizeMove, onResize]
+  );
+
+  const onResizeMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const el = elRef.current;
+      if (!el || !el.parentElement) return;
+
+      const rect = el.getBoundingClientRect();
+      const parentRect = el.parentElement.getBoundingClientRect();
+
+      resizeRef.current = {
+        startX: e.clientX,
+        origWidth: rect.width,
+        parentWidth: parentRect.width,
+      };
+
+      document.addEventListener("mousemove", onResizeMove);
+      document.addEventListener("mouseup", onResizeUp);
+    },
+    [onResizeMove, onResizeUp]
+  );
+
   // Cleanup listeners on unmount
   useEffect(() => {
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mousemove", onResizeMove);
+      document.removeEventListener("mouseup", onResizeUp);
     };
-  }, [onMouseMove, onMouseUp]);
+  }, [onMouseMove, onMouseUp, onResizeMove, onResizeUp]);
 
   // --- Below-image rendering (static flow, no absolute positioning) ---
   if (renderBelow) {
@@ -160,6 +238,14 @@ export default function TextOverlay({
     ? " ring-2 ring-amber-400/50 ring-offset-1 ring-offset-transparent"
     : "";
 
+  // Resize handle (right edge)
+  const resizeHandle = editable ? (
+    <div
+      onMouseDown={onResizeMouseDown}
+      className="absolute top-0 -right-1 w-2 h-full cursor-ew-resize hover:bg-amber-400/30 transition-colors"
+    />
+  ) : null;
+
   // Narration box — cream parchment style
   if (type === "narration") {
     return (
@@ -170,6 +256,7 @@ export default function TextOverlay({
         onMouseDown={onMouseDown}
       >
         {text}
+        {resizeHandle}
       </div>
     );
   }
@@ -198,6 +285,7 @@ export default function TextOverlay({
           {text}
           <div className="absolute -bottom-2 left-4 w-3 h-3 bg-white border-b-2 border-r-2 border-gray-900 rotate-45" />
         </div>
+        {resizeHandle}
       </div>
     );
   }
@@ -211,6 +299,7 @@ export default function TextOverlay({
       onMouseDown={onMouseDown}
     >
       {text}
+      {resizeHandle}
     </div>
   );
 }

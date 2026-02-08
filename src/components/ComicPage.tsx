@@ -7,12 +7,13 @@ interface ComicPageProps {
   page: ComicPageType;
   editable?: boolean;
   onOverlayPositionChange?: (panelIndex: number, overlayIndex: number, x: number, y: number) => void;
+  onOverlayResize?: (panelIndex: number, overlayIndex: number, maxWidthPercent: number) => void;
   onPanelMarginChange?: (panelIndex: number, margins: PanelMargins) => void;
 }
 
-export default function ComicPage({ page, editable, onOverlayPositionChange, onPanelMarginChange }: ComicPageProps) {
+export default function ComicPage({ page, editable, onOverlayPositionChange, onOverlayResize, onPanelMarginChange }: ComicPageProps) {
   return (
-    <div className="w-full max-w-6xl mx-auto">
+    <div className="w-full max-w-[1728px] mx-auto">
       <div
         className="comic-grid grid gap-1 bg-black p-1"
         style={{
@@ -30,6 +31,11 @@ export default function ComicPage({ page, editable, onOverlayPositionChange, onP
             onOverlayPositionChange={
               onOverlayPositionChange
                 ? (overlayIndex, x, y) => onOverlayPositionChange(panel.panelIndex, overlayIndex, x, y)
+                : undefined
+            }
+            onOverlayResize={
+              onOverlayResize
+                ? (overlayIndex, mw) => onOverlayResize(panel.panelIndex, overlayIndex, mw)
                 : undefined
             }
             onPanelMarginChange={

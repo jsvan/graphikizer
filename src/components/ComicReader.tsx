@@ -84,6 +84,24 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
     [currentPage]
   );
 
+  const handleOverlayResize = useCallback(
+    (panelIndex: number, overlayIndex: number, maxWidthPercent: number) => {
+      setEditedManifest((prev) => {
+        if (!prev) return prev;
+        const updated = JSON.parse(JSON.stringify(prev)) as ArticleManifest;
+        const page = updated.pages[currentPage];
+        const panel = page.panels.find((p) => p.panelIndex === panelIndex);
+        if (panel && panel.overlays[overlayIndex]) {
+          panel.overlays[overlayIndex].maxWidthPercent = maxWidthPercent;
+        }
+        return updated;
+      });
+      setHasChanges(true);
+      setSaveSuccess(false);
+    },
+    [currentPage]
+  );
+
   const handlePanelMarginChange = useCallback(
     (panelIndex: number, margins: PanelMargins) => {
       setEditedManifest((prev) => {
@@ -133,7 +151,7 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
   return (
     <div className="min-h-screen bg-gray-950">
       {/* Header */}
-      <div className="max-w-6xl mx-auto px-4 pt-8 pb-4">
+      <div className="max-w-[1728px] mx-auto px-4 pt-8 pb-4">
         <div className="flex items-center justify-between">
           <a
             href="/"
@@ -196,7 +214,7 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
 
       {/* Edit mode save bar */}
       {editMode && hasChanges && (
-        <div className="max-w-6xl mx-auto px-4 pb-4">
+        <div className="max-w-[1728px] mx-auto px-4 pb-4">
           <div className="flex items-center gap-3 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3">
             <input
               type="password"
@@ -232,6 +250,7 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
           page={activeManifest.pages[currentPage]}
           editable={editMode}
           onOverlayPositionChange={editMode ? handleOverlayPositionChange : undefined}
+          onOverlayResize={editMode ? handleOverlayResize : undefined}
           onPanelMarginChange={editMode ? handlePanelMarginChange : undefined}
         />
       </div>

@@ -8,6 +8,7 @@ interface ComicPanelProps {
   panel: ComicPanelType;
   editable?: boolean;
   onOverlayPositionChange?: (overlayIndex: number, x: number, y: number) => void;
+  onOverlayResize?: (overlayIndex: number, maxWidthPercent: number) => void;
   onPanelMarginChange?: (margins: PanelMargins) => void;
 }
 
@@ -18,7 +19,7 @@ const layoutClasses: Record<string, string> = {
   large: "col-span-3 row-span-2",
 };
 
-export default function ComicPanel({ panel, editable, onOverlayPositionChange, onPanelMarginChange }: ComicPanelProps) {
+export default function ComicPanel({ panel, editable, onOverlayPositionChange, onOverlayResize, onPanelMarginChange }: ComicPanelProps) {
   const { imageUrl, overlays, layout, panelMargins } = panel;
   const gridClass = layoutClasses[layout] || layoutClasses.normal;
 
@@ -138,6 +139,11 @@ export default function ComicPanel({ panel, editable, onOverlayPositionChange, o
             onPositionChange={
               onOverlayPositionChange
                 ? (x, y) => onOverlayPositionChange(index, x, y)
+                : undefined
+            }
+            onResize={
+              onOverlayResize
+                ? (mw) => onOverlayResize(index, mw)
                 : undefined
             }
           />
