@@ -22,8 +22,8 @@ export default function TextOverlay({
   const dragRef = useRef<{
     startX: number;
     startY: number;
-    origLeft: number;
-    origTop: number;
+    origViewportLeft: number;
+    origViewportTop: number;
   } | null>(null);
 
   const onMouseMove = useCallback((e: MouseEvent) => {
@@ -31,8 +31,10 @@ export default function TextOverlay({
     const el = elRef.current;
     if (!drag || !el) return;
     e.preventDefault();
-    el.style.left = `${drag.origLeft + (e.clientX - drag.startX)}px`;
-    el.style.top = `${drag.origTop + (e.clientY - drag.startY)}px`;
+    // Use fixed positioning during drag so the overlay floats above everything
+    el.style.position = "fixed";
+    el.style.left = `${drag.origViewportLeft + (e.clientX - drag.startX)}px`;
+    el.style.top = `${drag.origViewportTop + (e.clientY - drag.startY)}px`;
     el.style.right = "auto";
     el.style.bottom = "auto";
     el.style.transform = "none";
@@ -48,19 +50,22 @@ export default function TextOverlay({
         return;
       }
 
+      // Restore to absolute positioning
+      el.style.position = "absolute";
       el.style.cursor = "grab";
       el.style.zIndex = "10";
 
-      // Convert pixel position to percentage of parent
+      // Convert final viewport position to percentage of parent
       const parentRect = el.parentElement.getBoundingClientRect();
-      const xPct = ((e.clientX - dragRef.current!.startX + dragRef.current!.origLeft) / parentRect.width) * 100;
-      const yPct = ((e.clientY - dragRef.current!.startY + dragRef.current!.origTop) / parentRect.height) * 100;
+      const finalViewportLeft = dragRef.current!.origViewportLeft + (e.clientX - dragRef.current!.startX);
+      const finalViewportTop = dragRef.current!.origViewportTop + (e.clientY - dragRef.current!.startY);
+      const xPct = ((finalViewportLeft - parentRect.left) / parentRect.width) * 100;
+      const yPct = ((finalViewportTop - parentRect.top) / parentRect.height) * 100;
 
       dragRef.current = null;
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
 
-      console.log("[Drag] released at", Math.round(xPct), Math.round(yPct));
       onPositionChange?.(
         Math.round(xPct * 100) / 100,
         Math.round(yPct * 100) / 100
@@ -71,30 +76,28 @@ export default function TextOverlay({
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      console.log("[Drag] mousedown, editable:", editable, "type:", type);
       if (!editable) return;
       const el = elRef.current;
       if (!el) return;
       e.preventDefault();
       e.stopPropagation();
 
-      const origLeft = el.offsetLeft;
-      const origTop = el.offsetTop;
-      console.log("[Drag] start at", origLeft, origTop);
+      // Capture viewport position before switching to fixed
+      const rect = el.getBoundingClientRect();
 
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
-        origLeft,
-        origTop,
+        origViewportLeft: rect.left,
+        origViewportTop: rect.top,
       };
       el.style.cursor = "grabbing";
-      el.style.zIndex = "50";
+      el.style.zIndex = "9999";
 
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [editable, type, onMouseMove, onMouseUp]
+    [editable, onMouseMove, onMouseUp]
   );
 
   // Cleanup listeners on unmount
@@ -128,30 +131,29 @@ export default function TextOverlay({
     zIndex: 10,
   };
 
-  if (editable) {
+  // Anchor-aware positioning (same for edit and non-edit)
+  if (anchor === "top-left" || anchor === "bottom-left") {
     positionStyle.left = `${x}%`;
+  } else if (anchor === "top-right" || anchor === "bottom-right") {
+    positionStyle.right = `${100 - x}%`;
+  } else {
+    positionStyle.left = `${x}%`;
+    positionStyle.transform = "translateX(-50%)";
+  }
+
+  if (anchor === "top-left" || anchor === "top-right") {
     positionStyle.top = `${y}%`;
+  } else if (anchor === "bottom-left" || anchor === "bottom-right") {
+    positionStyle.bottom = `${100 - y}%`;
+  } else {
+    positionStyle.top = `${y}%`;
+    positionStyle.transform = `${positionStyle.transform || ""} translateY(-50%)`.trim();
+  }
+
+  if (editable) {
     positionStyle.cursor = "grab";
     positionStyle.userSelect = "none";
     positionStyle.WebkitUserSelect = "none";
-  } else {
-    if (anchor === "top-left" || anchor === "bottom-left") {
-      positionStyle.left = `${x}%`;
-    } else if (anchor === "top-right" || anchor === "bottom-right") {
-      positionStyle.right = `${100 - x}%`;
-    } else {
-      positionStyle.left = `${x}%`;
-      positionStyle.transform = "translateX(-50%)";
-    }
-
-    if (anchor === "top-left" || anchor === "top-right") {
-      positionStyle.top = `${y}%`;
-    } else if (anchor === "bottom-left" || anchor === "bottom-right") {
-      positionStyle.bottom = `${100 - y}%`;
-    } else {
-      positionStyle.top = `${y}%`;
-      positionStyle.transform = `${positionStyle.transform || ""} translateY(-50%)`.trim();
-    }
   }
 
   const editableRing = editable

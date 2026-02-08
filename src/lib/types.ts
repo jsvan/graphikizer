@@ -19,6 +19,14 @@ export interface TextOverlay {
 // Panel layout sizes
 export type PanelLayout = "normal" | "wide" | "tall" | "large";
 
+// Per-panel margin adjustments (pixels)
+export interface PanelMargins {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
 // A single comic panel
 export interface ComicPanel {
   panelIndex: number;
@@ -27,6 +35,7 @@ export interface ComicPanel {
   overlays: TextOverlay[];
   layout: PanelLayout;
   imageUrl?: string;
+  panelMargins?: PanelMargins;
 }
 
 // A page of panels

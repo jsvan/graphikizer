@@ -1,15 +1,16 @@
 "use client";
 
-import type { ComicPage as ComicPageType } from "@/lib/types";
+import type { ComicPage as ComicPageType, PanelMargins } from "@/lib/types";
 import ComicPanel from "./ComicPanel";
 
 interface ComicPageProps {
   page: ComicPageType;
   editable?: boolean;
   onOverlayPositionChange?: (panelIndex: number, overlayIndex: number, x: number, y: number) => void;
+  onPanelMarginChange?: (panelIndex: number, margins: PanelMargins) => void;
 }
 
-export default function ComicPage({ page, editable, onOverlayPositionChange }: ComicPageProps) {
+export default function ComicPage({ page, editable, onOverlayPositionChange, onPanelMarginChange }: ComicPageProps) {
   return (
     <div className="w-full max-w-6xl mx-auto">
       <div
@@ -18,6 +19,7 @@ export default function ComicPage({ page, editable, onOverlayPositionChange }: C
           gridTemplateColumns: "repeat(6, 1fr)",
           gridAutoFlow: "dense",
           gridAutoRows: "minmax(180px, auto)",
+          overflow: "visible",
         }}
       >
         {page.panels.map((panel) => (
@@ -28,6 +30,11 @@ export default function ComicPage({ page, editable, onOverlayPositionChange }: C
             onOverlayPositionChange={
               onOverlayPositionChange
                 ? (overlayIndex, x, y) => onOverlayPositionChange(panel.panelIndex, overlayIndex, x, y)
+                : undefined
+            }
+            onPanelMarginChange={
+              onPanelMarginChange
+                ? (margins) => onPanelMarginChange(panel.panelIndex, margins)
                 : undefined
             }
           />

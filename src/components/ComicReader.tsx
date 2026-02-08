@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import type { ArticleManifest } from "@/lib/types";
+import { useState, useEffect, useCallback } from "react";
+import type { ArticleManifest, PanelMargins } from "@/lib/types";
 import ComicPage from "./ComicPage";
 import PageControls from "./PageControls";
 
@@ -13,14 +13,15 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
   const [currentPage, setCurrentPage] = useState(0);
   const [editMode, setEditMode] = useState(false);
   const [editedManifest, setEditedManifest] = useState<ArticleManifest | null>(null);
+  const [baseManifest, setBaseManifest] = useState<ArticleManifest>(manifest);
   const [hasChanges, setHasChanges] = useState(false);
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const totalPages = manifest.pages.length;
+  const totalPages = baseManifest.pages.length;
 
-  const activeManifest = editedManifest ?? manifest;
+  const activeManifest = editedManifest ?? baseManifest;
 
   const goToPrev = useCallback(() => {
     setCurrentPage((p) => Math.max(0, p - 1));
@@ -47,13 +48,13 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
   const toggleEditMode = useCallback(() => {
     setEditMode((prev) => {
       if (!prev) {
-        // Entering edit mode — deep copy manifest
-        setEditedManifest(JSON.parse(JSON.stringify(manifest)));
+        // Entering edit mode — deep copy from baseManifest
+        setEditedManifest(JSON.parse(JSON.stringify(baseManifest)));
         setHasChanges(false);
         setSaveError("");
         setSaveSuccess(false);
       } else {
-        // Exiting edit mode — discard changes
+        // Exiting edit mode — discard unsaved changes, fall back to baseManifest
         setEditedManifest(null);
         setHasChanges(false);
         setSaveError("");
@@ -61,7 +62,7 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
       }
       return !prev;
     });
-  }, [manifest]);
+  }, [baseManifest]);
 
   const handleOverlayPositionChange = useCallback(
     (panelIndex: number, overlayIndex: number, x: number, y: number) => {
@@ -74,6 +75,24 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
           panel.overlays[overlayIndex].x = x;
           panel.overlays[overlayIndex].y = y;
           panel.overlays[overlayIndex].anchor = "top-left";
+        }
+        return updated;
+      });
+      setHasChanges(true);
+      setSaveSuccess(false);
+    },
+    [currentPage]
+  );
+
+  const handlePanelMarginChange = useCallback(
+    (panelIndex: number, margins: PanelMargins) => {
+      setEditedManifest((prev) => {
+        if (!prev) return prev;
+        const updated = JSON.parse(JSON.stringify(prev)) as ArticleManifest;
+        const page = updated.pages[currentPage];
+        const panel = page.panels.find((p) => p.panelIndex === panelIndex);
+        if (panel) {
+          panel.panelMargins = margins;
         }
         return updated;
       });
@@ -101,6 +120,8 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
       } else {
         setSaveSuccess(true);
         setHasChanges(false);
+        // Update baseManifest so exiting edit mode preserves saved positions
+        setBaseManifest(JSON.parse(JSON.stringify(editedManifest)));
       }
     } catch {
       setSaveError("Network error");
@@ -211,6 +232,7 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
           page={activeManifest.pages[currentPage]}
           editable={editMode}
           onOverlayPositionChange={editMode ? handleOverlayPositionChange : undefined}
+          onPanelMarginChange={editMode ? handlePanelMarginChange : undefined}
         />
       </div>
 
