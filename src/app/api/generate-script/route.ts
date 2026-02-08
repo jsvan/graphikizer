@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildScriptPrompt(title, articleText);
 
-    const message = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 64000,
       messages: [
@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
       system: "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source article — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.",
       temperature: 0.7,
     });
+
+    const message = await stream.finalMessage();
 
     const textBlock = message.content.find((b) => b.type === "text");
     const content = textBlock?.text;
