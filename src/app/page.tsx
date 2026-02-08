@@ -18,10 +18,7 @@ export default function HomePage() {
       </div>
 
       {/* Upload section */}
-      <section className="max-w-6xl mx-auto px-4 py-12">
-        <h2 className="text-2xl font-semibold text-gray-200 mb-6 text-center">
-          Create New Graphic Novel
-        </h2>
+      <section className="max-w-6xl mx-auto px-4 py-8">
         <UploadForm />
       </section>
 

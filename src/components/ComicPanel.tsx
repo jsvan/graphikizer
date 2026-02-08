@@ -5,6 +5,8 @@ import TextOverlay from "./TextOverlay";
 
 interface ComicPanelProps {
   panel: ComicPanelType;
+  editable?: boolean;
+  onOverlayPositionChange?: (overlayIndex: number, x: number, y: number) => void;
 }
 
 const layoutClasses: Record<string, string> = {
@@ -14,7 +16,7 @@ const layoutClasses: Record<string, string> = {
   large: "col-span-3 row-span-2",
 };
 
-export default function ComicPanel({ panel }: ComicPanelProps) {
+export default function ComicPanel({ panel, editable, onOverlayPositionChange }: ComicPanelProps) {
   const { imageUrl, overlays, layout } = panel;
   const gridClass = layoutClasses[layout] || layoutClasses.normal;
 
@@ -37,7 +39,16 @@ export default function ComicPanel({ panel }: ComicPanelProps) {
       )}
 
       {overlays.map((overlay, i) => (
-        <TextOverlay key={i} overlay={overlay} />
+        <TextOverlay
+          key={i}
+          overlay={overlay}
+          editable={editable}
+          onPositionChange={
+            onOverlayPositionChange
+              ? (x, y) => onOverlayPositionChange(i, x, y)
+              : undefined
+          }
+        />
       ))}
     </div>
   );

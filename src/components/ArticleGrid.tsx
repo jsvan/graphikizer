@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ArticleIndexEntry } from "@/lib/types";
 import ArticleCard from "./ArticleCard";
 
 export default function ArticleGrid() {
   const [articles, setArticles] = useState<ArticleIndexEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/articles")
@@ -16,6 +17,30 @@ export default function ArticleGrid() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  }, []);
+
+  const handleDelete = useCallback(async (slug: string) => {
+    const password = prompt("Enter admin password to delete:");
+    if (!password) return;
+
+    setDeleting(slug);
+    try {
+      const res = await fetch("/api/delete-article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setArticles((prev) => prev.filter((a) => a.slug !== slug));
+      } else {
+        alert(data.error || "Delete failed");
+      }
+    } catch {
+      alert("Network error");
+    } finally {
+      setDeleting(null);
+    }
   }, []);
 
   if (loading) {
@@ -38,7 +63,9 @@ export default function ArticleGrid() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
       {articles.map((article) => (
-        <ArticleCard key={article.slug} article={article} />
+        <div key={article.slug} className={deleting === article.slug ? "opacity-50 pointer-events-none" : ""}>
+          <ArticleCard article={article} onDelete={handleDelete} />
+        </div>
       ))}
     </div>
   );

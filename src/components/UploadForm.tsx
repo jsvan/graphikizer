@@ -15,6 +15,7 @@ const CONCURRENCY_LIMIT = 5;
 
 export default function UploadForm() {
   const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [articleText, setArticleText] = useState("");
@@ -122,6 +123,7 @@ export default function UploadForm() {
         createdAt: new Date().toISOString(),
         totalPanels: completedScript.totalPanels,
         pages: completedScript.pages,
+        scriptUrl: completedScript.scriptUrl,
       };
 
       const saveRes = await fetch("/api/save-article", {
@@ -154,6 +156,23 @@ export default function UploadForm() {
 
   return (
     <div>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 mx-auto text-sm font-medium text-gray-400 hover:text-amber-400 transition-colors mb-4"
+      >
+        <svg
+          className={`w-4 h-4 transition-transform ${expanded ? "rotate-90" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        {expanded ? "Hide form" : "Create new graphic novel"}
+      </button>
+
+      {expanded && (
       <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-5">
         <div>
           <label htmlFor="title" className="block text-sm font-medium text-gray-300 mb-1">
@@ -230,6 +249,7 @@ export default function UploadForm() {
           {isGenerating ? "Generating..." : "Generate Graphic Novel"}
         </button>
       </form>
+      )}
 
       <GenerationProgress
         stage={stage}

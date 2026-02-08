@@ -5,9 +5,11 @@ import ComicPanel from "./ComicPanel";
 
 interface ComicPageProps {
   page: ComicPageType;
+  editable?: boolean;
+  onOverlayPositionChange?: (panelIndex: number, overlayIndex: number, x: number, y: number) => void;
 }
 
-export default function ComicPage({ page }: ComicPageProps) {
+export default function ComicPage({ page, editable, onOverlayPositionChange }: ComicPageProps) {
   return (
     <div className="w-full max-w-6xl mx-auto">
       <div
@@ -19,7 +21,16 @@ export default function ComicPage({ page }: ComicPageProps) {
         }}
       >
         {page.panels.map((panel) => (
-          <ComicPanel key={panel.panelIndex} panel={panel} />
+          <ComicPanel
+            key={panel.panelIndex}
+            panel={panel}
+            editable={editable}
+            onOverlayPositionChange={
+              onOverlayPositionChange
+                ? (overlayIndex, x, y) => onOverlayPositionChange(panel.panelIndex, overlayIndex, x, y)
+                : undefined
+            }
+          />
         ))}
       </div>
     </div>

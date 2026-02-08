@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPassword } from "@/lib/auth";
 import { getOpenAIClient } from "@/lib/openai";
+import { saveScript } from "@/lib/blob";
 import { buildScriptPrompt } from "@/lib/prompts";
 import type {
   GenerateScriptRequest,
@@ -37,12 +38,12 @@ export async function POST(req: NextRequest) {
         {
           role: "system",
           content:
-            "You are a graphic novel script writer. You output only valid JSON, no markdown fences.",
+            "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source article — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences.",
         },
         { role: "user", content: prompt },
       ],
-      temperature: 0.8,
-      max_tokens: 16000,
+      temperature: 0.7,
+      max_tokens: 32000,
       response_format: { type: "json_object" },
     });
 
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
       .replace(/^-|-$/g, "")
       .slice(0, 80);
 
+    // Save raw AI response to blob
+    const scriptUrl = await saveScript(slug, content);
+
     const script: ComicScript = {
       title,
       slug,
@@ -70,6 +74,7 @@ export async function POST(req: NextRequest) {
       artStyle: parsed.artStyle,
       totalPanels: parsed.totalPanels,
       pages: parsed.pages,
+      scriptUrl,
     };
 
     return NextResponse.json<GenerateScriptResponse>({

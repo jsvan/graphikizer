@@ -1,4 +1,4 @@
-import { put, list } from "@vercel/blob";
+import { put, list, del } from "@vercel/blob";
 import type { ArticleIndexEntry, ArticleManifest } from "./types";
 
 export async function checkPanelExists(
@@ -91,4 +91,53 @@ export async function updateArticleIndex(entry: ArticleIndexEntry): Promise<void
     contentType: "application/json",
     addRandomSuffix: false,
   });
+}
+
+export async function removeFromArticleIndex(slug: string): Promise<void> {
+  const existing = await getArticleIndex();
+  const filtered = existing.filter((e) => e.slug !== slug);
+
+  await put("articles/index.json", JSON.stringify(filtered, null, 2), {
+    access: "public",
+    contentType: "application/json",
+    addRandomSuffix: false,
+  });
+}
+
+export async function deleteArticleBlobs(slug: string): Promise<void> {
+  // List all blobs under the article's prefix and delete them
+  let cursor: string | undefined;
+  const urls: string[] = [];
+
+  do {
+    const result = await list({ prefix: `articles/${slug}/`, cursor });
+    urls.push(...result.blobs.map((b) => b.url));
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+
+  if (urls.length > 0) {
+    await del(urls);
+  }
+}
+
+export async function saveScript(slug: string, rawJson: string): Promise<string> {
+  const pathname = `articles/${slug}/script.json`;
+
+  const blob = await put(pathname, rawJson, {
+    access: "public",
+    contentType: "application/json",
+    addRandomSuffix: false,
+  });
+
+  return blob.url;
+}
+
+export async function getScriptUrl(slug: string): Promise<string | null> {
+  try {
+    const { blobs } = await list({ prefix: `articles/${slug}/script.json` });
+    if (blobs.length === 0) return null;
+    return blobs[0].url;
+  } catch {
+    return null;
+  }
 }

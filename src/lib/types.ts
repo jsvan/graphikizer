@@ -51,6 +51,8 @@ export interface ComicScript {
   artStyle: ArtStyle;
   totalPanels: number;
   pages: ComicPage[];
+  /** URL to the raw AI-generated script JSON in blob storage */
+  scriptUrl?: string;
 }
 
 // Article manifest stored in Vercel Blob
@@ -62,6 +64,8 @@ export interface ArticleManifest {
   createdAt: string;
   totalPanels: number;
   pages: ComicPage[];
+  /** URL to the raw AI-generated script JSON in blob storage */
+  scriptUrl?: string;
 }
 
 // Article summary for the index
@@ -113,5 +117,15 @@ export interface SaveArticleRequest {
 export interface SaveArticleResponse {
   success: boolean;
   slug?: string;
+  error?: string;
+}
+
+export interface DeleteArticleRequest {
+  slug: string;
+  password: string;
+}
+
+export interface DeleteArticleResponse {
+  success: boolean;
   error?: string;
 }
