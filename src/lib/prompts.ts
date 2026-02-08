@@ -53,13 +53,16 @@ TEXT OVERLAY POSITIONING:
 - maxWidthPercent: width of text box as % of panel (default 40, use 35-50 for narration)
 - Types: "narration" (analytical content, in corners), "dialogue" (quotes, needs "speaker" field, near speaker), "caption" (labels/dates/locations, at edges)
 
-ARTWORK DESCRIPTIONS:
-- NEVER include text, words, letters, numbers, labels, or writing in artwork descriptions
-- Describe ONLY visual imagery: people, places, objects, lighting, composition, mood
-- 2-4 sentences per description, vivid and specific
-- Reference the chosen art style in each description
-- Include composition details: foreground/background, camera angle, lighting
-- USE REAL NAMES, NOT GENERIC TITLES. Write "Emmanuel Macron" not "the French leader", "Olaf Scholz" not "the German chancellor", "a NATO summit in Brussels" not "a meeting between Western leaders". When the article names a person, your artwork description must use that name. Generic descriptions like "two European leaders shaking hands" produce stereotypical clip-art. Specific names produce recognizable, grounded imagery tied to the real article.
+ARTWORK DESCRIPTIONS (artworkPrompt field):
+The artworkPrompt for each panel will be sent directly to an AI image generation model (FLUX) as its prompt. Write it accordingly — this is a prompt for an image AI, not prose for a human reader.
+- Write in image-prompt style: concrete visual details, comma-separated descriptors, specific and literal. The image model cannot interpret metaphors, abstract concepts, or narrative context — it only renders what you literally describe.
+- NEVER include text, words, letters, numbers, labels, or writing in the prompt — the image model will render them as garbled gibberish.
+- Describe ONLY visual imagery: specific people, specific places, objects, lighting, composition, mood, camera angle, foreground/background.
+- Start each prompt by naming the art style (e.g., "In European Ligne Claire style, ...").
+- 2-4 sentences, vivid and specific. Favor concrete nouns and adjectives over abstract descriptions.
+- USE REAL NAMES, NOT GENERIC TITLES. Write "Emmanuel Macron in a dark suit" not "the French leader", "Olaf Scholz at a podium" not "the German chancellor". When the article names a person, your prompt must use that specific name. Generic descriptions produce generic clip-art; named people produce recognizable, grounded imagery.
+- BAD: "A scene showing the tension between European powers over defense spending" (abstract, the image model can't render 'tension' or 'defense spending')
+- GOOD: "In European Ligne Claire style, Emmanuel Macron and Olaf Scholz seated across a long oak table in the Élysée Palace, Macron leaning forward with hands clasped, Scholz looking down at documents, warm overhead lighting casting long shadows, French and German flags in the background"
 
 ---
 
