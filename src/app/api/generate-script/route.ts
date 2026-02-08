@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       password: string;
       artStyle?: ArtStyle;
       startPanelIndex?: number;
+      partialResponse?: string;
     };
 
     if (!title || !articleChunk || !password || !chunkNumber || !totalChunks) {
@@ -65,10 +66,20 @@ export async function POST(req: NextRequest) {
           )
         : buildFirstChunkPrompt(title, articleChunk, chunkNumber, totalChunks);
 
+    // If partialResponse is provided, use true prefill so Claude
+    // continues generating from exactly where it left off.
+    const { partialResponse } = body as { partialResponse?: string };
+    const messages: Anthropic.MessageParam[] = partialResponse
+      ? [
+          { role: "user", content: prompt },
+          { role: "assistant", content: partialResponse },
+        ]
+      : [{ role: "user", content: prompt }];
+
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 16000,
-      messages: [{ role: "user", content: prompt }],
+      messages,
       system: SYSTEM_PROMPT,
       temperature: 0.7,
     });
