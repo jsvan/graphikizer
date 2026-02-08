@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildPanelImagePrompt(artworkPrompt, artStyle);
 
-    const MAX_RETRIES = 5;
+    const MAX_RETRIES = 6;
     let output: unknown;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -58,13 +58,13 @@ export async function POST(req: NextRequest) {
         });
         break;
       } catch (err: unknown) {
-        const is429 =
-          err instanceof Error && err.message.includes("429");
+        // Stringify the error to catch 429 regardless of error class
+        const errStr = String(err && typeof err === "object" && "message" in err ? err.message : err);
+        const is429 = errStr.includes("429") || errStr.includes("throttled");
         if (is429 && attempt < MAX_RETRIES - 1) {
-          // Parse retry_after from error message, default to 15s
-          let waitSeconds = 15;
-          const match = err.message.match(/retry_after.*?(\d+)/i);
-          if (match) waitSeconds = Math.max(Number(match[1]), 5);
+          const retryMatch = errStr.match(/retry_after.*?(\d+)/i);
+          const waitSeconds = retryMatch ? Math.max(Number(retryMatch[1]), 10) : 15;
+          console.log(`Panel ${panelIndex}: 429 throttled, retry ${attempt + 1}/${MAX_RETRIES - 1} in ${waitSeconds}s`);
           await new Promise((r) => setTimeout(r, waitSeconds * 1000));
           continue;
         }
@@ -102,13 +102,13 @@ export async function POST(req: NextRequest) {
       imageUrl,
       panelIndex,
     });
-  } catch (error) {
-    console.error("Panel generation error:", error);
+  } catch (error: unknown) {
+    const msg = error && typeof error === "object" && "message" in error
+      ? String(error.message)
+      : String(error);
+    console.error("Panel generation error:", msg);
     return NextResponse.json<GeneratePanelResponse>(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Panel generation failed",
-      },
+      { success: false, error: msg || "Panel generation failed" },
       { status: 500 }
     );
   }

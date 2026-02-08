@@ -42,28 +42,45 @@ export default function UploadForm() {
         const panel = queue.shift();
         if (!panel) break;
 
-        const res = await fetch("/api/generate-panel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            artworkPrompt: panel.artworkPrompt,
-            artStyle: script.artStyle,
-            slug: script.slug,
-            panelIndex: panel.panelIndex,
-            password,
-          }),
-        });
+        const CLIENT_RETRIES = 3;
+        let lastError = "";
 
-        const data: GeneratePanelResponse = await res.json();
+        for (let attempt = 0; attempt < CLIENT_RETRIES; attempt++) {
+          try {
+            const res = await fetch("/api/generate-panel", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                artworkPrompt: panel.artworkPrompt,
+                artStyle: script.artStyle,
+                slug: script.slug,
+                panelIndex: panel.panelIndex,
+                password,
+              }),
+            });
 
-        if (!data.success) {
-          throw new Error(data.error || `Panel ${panel.panelIndex} failed`);
+            const data: GeneratePanelResponse = await res.json();
+
+            if (!data.success) {
+              lastError = data.error || `Panel ${panel.panelIndex} failed`;
+              // Retry on throttle/timeout errors
+              if (attempt < CLIENT_RETRIES - 1 && (lastError.includes("429") || lastError.includes("throttled") || lastError.includes("timed out"))) {
+                await new Promise((r) => setTimeout(r, 15000));
+                continue;
+              }
+              throw new Error(lastError);
+            }
+
+            results.set(panel.panelIndex, data.imageUrl!);
+            setLatestImageUrl(data.imageUrl!);
+            completed++;
+            setCurrentPanel(completed);
+            break;
+          } catch (err) {
+            if (attempt >= CLIENT_RETRIES - 1) throw err;
+            await new Promise((r) => setTimeout(r, 15000));
+          }
         }
-
-        results.set(panel.panelIndex, data.imageUrl!);
-        setLatestImageUrl(data.imageUrl!);
-        completed++;
-        setCurrentPanel(completed);
       }
     }
 
