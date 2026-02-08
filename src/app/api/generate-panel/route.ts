@@ -72,6 +72,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Guard: output may be unset if retries exhausted without throwing
+    if (!output) {
+      return NextResponse.json<GeneratePanelResponse>(
+        { success: false, error: "Replicate returned no output after retries" },
+        { status: 500 }
+      );
+    }
+
     // FLUX returns a URL string or a FileOutput object
     let imageUrlFromReplicate: string;
     if (typeof output === "string") {
@@ -80,7 +88,7 @@ export async function POST(req: NextRequest) {
       imageUrlFromReplicate = (output as { url: () => string }).url();
     } else {
       return NextResponse.json<GeneratePanelResponse>(
-        { success: false, error: "Unexpected output format from Replicate" },
+        { success: false, error: `Unexpected output format from Replicate: ${typeof output}` },
         { status: 500 }
       );
     }
@@ -89,12 +97,28 @@ export async function POST(req: NextRequest) {
     const imageRes = await fetch(imageUrlFromReplicate);
     if (!imageRes.ok) {
       return NextResponse.json<GeneratePanelResponse>(
-        { success: false, error: "Failed to download generated image" },
+        { success: false, error: `Failed to download image: HTTP ${imageRes.status}` },
+        { status: 500 }
+      );
+    }
+
+    const contentType = imageRes.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) {
+      return NextResponse.json<GeneratePanelResponse>(
+        { success: false, error: `Replicate returned non-image content: ${contentType}` },
         { status: 500 }
       );
     }
 
     const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+
+    if (imageBuffer.length < 1024) {
+      return NextResponse.json<GeneratePanelResponse>(
+        { success: false, error: `Image too small (${imageBuffer.length} bytes), likely corrupt` },
+        { status: 500 }
+      );
+    }
+
     const imageUrl = await uploadPanelImage(imageBuffer, slug, panelIndex);
 
     return NextResponse.json<GeneratePanelResponse>({
