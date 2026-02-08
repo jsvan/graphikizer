@@ -1,23 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { verifyPassword } from "@/lib/auth";
-import { saveScript } from "@/lib/blob";
 import { buildScriptPrompt } from "@/lib/prompts";
-import type {
-  GenerateScriptRequest,
-  GenerateScriptResponse,
-  ComicScript,
-} from "@/lib/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
+
+const SYSTEM_PROMPT =
+  "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source article — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as GenerateScriptRequest;
-    const { title, sourceUrl, articleText, password } = body;
+    const body = await req.json();
+    const { title, sourceUrl, articleText, password, partialResponse } = body;
 
     if (!title || !articleText || !password) {
-      return NextResponse.json<GenerateScriptResponse>(
+      return Response.json(
         { success: false, error: "Missing required fields" },
         { status: 400 }
       );
@@ -25,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     const valid = await verifyPassword(password);
     if (!valid) {
-      return NextResponse.json<GenerateScriptResponse>(
+      return Response.json(
         { success: false, error: "Invalid password" },
         { status: 401 }
       );
@@ -37,59 +34,57 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildScriptPrompt(title, articleText);
 
+    // Build messages — either fresh or continuation
+    const messages: Anthropic.MessageParam[] = partialResponse
+      ? [
+          { role: "user", content: prompt },
+          { role: "assistant", content: partialResponse },
+          {
+            role: "user",
+            content:
+              "Your previous response was cut off. Continue EXACTLY from where you stopped. Output ONLY the remaining JSON — do not repeat anything already written. Do not add any commentary.",
+          },
+        ]
+      : [{ role: "user", content: prompt }];
+
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 64000,
-      messages: [
-        { role: "user", content: prompt },
-      ],
-      system: "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source article — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.",
+      messages,
+      system: SYSTEM_PROMPT,
       temperature: 0.7,
     });
 
-    const message = await stream.finalMessage();
+    // Stream text deltas to the client as they arrive
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        }
+      },
+    });
 
-    const textBlock = message.content.find((b) => b.type === "text");
-    const content = textBlock?.text;
-
-    if (!content) {
-      return NextResponse.json<GenerateScriptResponse>(
-        { success: false, error: "No response from AI" },
-        { status: 500 }
-      );
-    }
-
-    // Strip markdown fences if present
-    const jsonStr = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(jsonStr);
-
-    // Build slug from title
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 80);
-
-    // Save raw AI response to blob
-    const scriptUrl = await saveScript(slug, jsonStr);
-
-    const script: ComicScript = {
-      title,
-      slug,
-      sourceUrl: sourceUrl || "",
-      artStyle: parsed.artStyle,
-      totalPanels: parsed.totalPanels,
-      pages: parsed.pages,
-      scriptUrl,
-    };
-
-    return NextResponse.json<GenerateScriptResponse>({
-      success: true,
-      script,
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+      },
     });
   } catch (error) {
     console.error("Script generation error:", error);
-    return NextResponse.json<GenerateScriptResponse>(
+    return Response.json(
       {
         success: false,
         error: error instanceof Error ? error.message : "Script generation failed",

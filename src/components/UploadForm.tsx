@@ -4,12 +4,13 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ComicScript,
-  GenerateScriptResponse,
   GeneratePanelResponse,
   SaveArticleResponse,
   ArticleManifest,
 } from "@/lib/types";
 import GenerationProgress from "./GenerationProgress";
+
+const MAX_CONTINUATIONS = 4;
 
 const CONCURRENCY_LIMIT = 5;
 
@@ -112,21 +113,95 @@ export default function UploadForm() {
     setLatestImageUrl("");
 
     try {
-      // Step 1: Generate script
-      const scriptRes = await fetch("/api/generate-script", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, sourceUrl, articleText, password }),
-      });
+      // Step 1: Generate script via streaming with continuation
+      let fullText = "";
 
-      const scriptData: GenerateScriptResponse = await scriptRes.json();
+      for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
+        const iscontinuation = attempt > 0;
 
-      if (!scriptData.success || !scriptData.script) {
-        throw new Error(scriptData.error || "Script generation failed");
+        const res = await fetch("/api/generate-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            sourceUrl,
+            articleText,
+            password,
+            ...(iscontinuation ? { partialResponse: fullText } : {}),
+          }),
+        });
+
+        if (!res.ok) {
+          // Try to parse error JSON from non-streaming error responses
+          try {
+            const errData = await res.json();
+            throw new Error(errData.error || `Server error ${res.status}`);
+          } catch {
+            throw new Error(`Server error ${res.status}`);
+          }
+        }
+
+        if (!res.body) throw new Error("No response stream");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            fullText += decoder.decode(value, { stream: true });
+          }
+        } catch {
+          // Connection dropped (504 timeout) — we have partial text
+          if (attempt < MAX_CONTINUATIONS && fullText.length > 0) {
+            continue; // retry with continuation
+          }
+          throw new Error("Connection lost and max retries exceeded");
+        }
+
+        // Check if we got valid complete JSON
+        const cleaned = fullText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        try {
+          JSON.parse(cleaned);
+          fullText = cleaned;
+          break; // valid JSON, done
+        } catch {
+          if (attempt < MAX_CONTINUATIONS) {
+            continue; // JSON incomplete, continue
+          }
+          throw new Error("Script generation incomplete after all retries");
+        }
       }
 
-      const script = scriptData.script;
-      setScriptPreview(scriptData.script);
+      const parsed = JSON.parse(fullText);
+
+      // Build slug from title
+      const slug = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 80);
+
+      // Save raw script to blob
+      const saveScriptRes = await fetch("/api/save-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, content: fullText, password }),
+      });
+      const saveScriptData = await saveScriptRes.json();
+
+      const script: ComicScript = {
+        title,
+        slug,
+        sourceUrl: sourceUrl || "",
+        artStyle: parsed.artStyle,
+        totalPanels: parsed.totalPanels,
+        pages: parsed.pages,
+        scriptUrl: saveScriptData.url,
+      };
+
+      setScriptPreview(script);
       const allPanels = script.pages.flatMap((p) => p.panels);
       setTotalPanels(allPanels.length);
       setCurrentPanel(0);
