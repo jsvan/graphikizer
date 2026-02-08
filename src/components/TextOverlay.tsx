@@ -26,9 +26,11 @@ export default function TextOverlay({
   const dragRef = useRef<{
     startX: number;
     startY: number;
-    origViewportLeft: number;
-    origViewportTop: number;
-    origWidth: number;
+    origLeft: number;
+    origTop: number;
+    parentWidth: number;
+    parentHeight: number;
+    panelEl: HTMLElement | null;
   } | null>(null);
 
   const onMouseMove = useCallback((e: MouseEvent) => {
@@ -36,29 +38,27 @@ export default function TextOverlay({
     const el = elRef.current;
     if (!drag || !el) return;
     e.preventDefault();
-    el.style.left = `${drag.origViewportLeft + (e.clientX - drag.startX)}px`;
-    el.style.top = `${drag.origViewportTop + (e.clientY - drag.startY)}px`;
+    el.style.left = `${drag.origLeft + (e.clientX - drag.startX)}px`;
+    el.style.top = `${drag.origTop + (e.clientY - drag.startY)}px`;
   }, []);
 
   const onMouseUp = useCallback(
     (e: MouseEvent) => {
       const el = elRef.current;
-      if (!el || !el.parentElement) {
+      const drag = dragRef.current;
+      if (!el || !drag) {
         dragRef.current = null;
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
         return;
       }
 
-      // Convert final viewport position to percentage of parent
-      const parentRect = el.parentElement.getBoundingClientRect();
-      const finalViewportLeft = dragRef.current!.origViewportLeft + (e.clientX - dragRef.current!.startX);
-      const finalViewportTop = dragRef.current!.origViewportTop + (e.clientY - dragRef.current!.startY);
-      const xPct = ((finalViewportLeft - parentRect.left) / parentRect.width) * 100;
-      const yPct = ((finalViewportTop - parentRect.top) / parentRect.height) * 100;
+      const finalLeft = drag.origLeft + (e.clientX - drag.startX);
+      const finalTop = drag.origTop + (e.clientY - drag.startY);
+      const xPct = (finalLeft / drag.parentWidth) * 100;
+      const yPct = (finalTop / drag.parentHeight) * 100;
 
-      // Restore to absolute positioning
-      el.style.position = "absolute";
+      // Restore styles
       el.style.width = "";
       el.style.height = "";
       el.style.maxWidth = "";
@@ -69,6 +69,9 @@ export default function TextOverlay({
       el.style.transform = "";
       el.style.cursor = "grab";
       el.style.zIndex = "10";
+
+      // Restore panel z-index
+      if (drag.panelEl) drag.panelEl.style.zIndex = "";
 
       dragRef.current = null;
       document.removeEventListener("mousemove", onMouseMove);
@@ -86,29 +89,36 @@ export default function TextOverlay({
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!editable) return;
       const el = elRef.current;
-      if (!el) return;
+      if (!el || !el.parentElement) return;
       e.preventDefault();
       e.stopPropagation();
 
-      // Snapshot exact dimensions and viewport position, then immediately
-      // switch to fixed positioning with locked pixel size
+      // Get visual position relative to the parent (the position: relative container)
       const rect = el.getBoundingClientRect();
+      const parentRect = el.parentElement.getBoundingClientRect();
+      const origLeft = rect.left - parentRect.left;
+      const origTop = rect.top - parentRect.top;
+
+      // Elevate the panel (grandparent grid item) so overflow shows above other panels
+      const panelEl = el.parentElement.parentElement as HTMLElement | null;
+      if (panelEl) panelEl.style.zIndex = "100";
 
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
-        origViewportLeft: rect.left,
-        origViewportTop: rect.top,
-        origWidth: rect.width,
+        origLeft,
+        origTop,
+        parentWidth: parentRect.width,
+        parentHeight: parentRect.height,
+        panelEl,
       };
 
-      // Lock everything in one shot — no intermediate frames
-      el.style.position = "fixed";
+      // Lock dimensions, switch to pixel positioning within parent
       el.style.width = `${rect.width}px`;
       el.style.height = `${rect.height}px`;
       el.style.maxWidth = "none";
-      el.style.left = `${rect.left}px`;
-      el.style.top = `${rect.top}px`;
+      el.style.left = `${origLeft}px`;
+      el.style.top = `${origTop}px`;
       el.style.right = "auto";
       el.style.bottom = "auto";
       el.style.transform = "none";
