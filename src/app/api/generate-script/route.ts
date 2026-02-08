@@ -34,16 +34,14 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildScriptPrompt(title, articleText);
 
-    // Build messages — either fresh or continuation
+    // Build messages — either fresh or continuation via true prefill.
+    // When partialResponse is provided, it becomes the last (assistant)
+    // message. The API then continues generating tokens from that exact
+    // point — no re-generation, no overlap.
     const messages: Anthropic.MessageParam[] = partialResponse
       ? [
           { role: "user", content: prompt },
           { role: "assistant", content: partialResponse },
-          {
-            role: "user",
-            content:
-              "Your previous response was cut off. Continue EXACTLY from where you stopped. Output ONLY the remaining JSON — do not repeat anything already written. Do not add any commentary.",
-          },
         ]
       : [{ role: "user", content: prompt }];
 

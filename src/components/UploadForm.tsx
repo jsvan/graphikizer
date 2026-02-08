@@ -232,9 +232,9 @@ export default function UploadForm() {
         console.log(`[Script] Stream ${streamCompleted ? "completed" : "interrupted"}: ${newText.length} new chars, ${chunkCount} chunks`);
 
         if (isContinuation) {
-          // Merge using the same trimmed base that Claude saw as its prefill
-          const cleanedNew = stripFences(newText);
-          fullText = basePrefill + "\n" + cleanedNew;
+          // True prefill: continuation tokens directly follow the prefill.
+          // Don't strip or trim — the tokens are an exact continuation.
+          fullText = basePrefill + newText;
           console.log(`[Script] After merge: ${fullText.length} total chars`);
         } else {
           fullText = newText;
