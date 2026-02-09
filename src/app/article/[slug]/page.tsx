@@ -4,7 +4,7 @@ import { placeOverlays } from "@/lib/bubblePlacement";
 import ComicReader from "@/components/ComicReader";
 
 /** Current placement algorithm version. Bump to re-run on all articles. */
-const PLACEMENT_VERSION = 2;
+const PLACEMENT_VERSION = 3;
 
 interface ArticlePageProps {
   params: Promise<{ slug: string }>;

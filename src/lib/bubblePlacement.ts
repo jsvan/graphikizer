@@ -5,6 +5,9 @@ import type { TextOverlay, PanelLayout, OverlayType } from "./types";
  *
  * Places overlays around the panel perimeter, keeping the center 50%
  * (the "sacrosanct zone") clear so the focal artwork is visible.
+ *
+ * Key rule: every overlay must clearly belong to its panel. Nothing
+ * should sit at the bottom edge where it's ambiguous between panels.
  */
 
 interface Slot {
@@ -15,26 +18,31 @@ interface Slot {
 }
 
 // 8 placement slots around the panel perimeter.
-// Coordinates are percentages; some go slightly negative or past 100
-// to sit in the gutter between panels.
+// Bottom slots pulled up to y:65 so overlays clearly belong to this panel.
+// ML/MR sit in the gutter between columns (negative/over-100 x).
 const SLOTS: Record<string, Slot> = {
-  TL: { id: "TL", x: 3, y: 3, anchor: "top-left" },
-  TC: { id: "TC", x: 50, y: -2, anchor: "center" },
-  TR: { id: "TR", x: 97, y: 3, anchor: "top-right" },
-  ML: { id: "ML", x: -3, y: 40, anchor: "top-left" },
+  TL: { id: "TL", x: 3,   y: 3,  anchor: "top-left" },
+  TC: { id: "TC", x: 50,  y: 2,  anchor: "center" },
+  TR: { id: "TR", x: 97,  y: 3,  anchor: "top-right" },
+  ML: { id: "ML", x: -3,  y: 40, anchor: "top-left" },
   MR: { id: "MR", x: 103, y: 40, anchor: "top-right" },
-  BL: { id: "BL", x: 3, y: 78, anchor: "bottom-left" },
-  BC: { id: "BC", x: 50, y: 102, anchor: "center" },
-  BR: { id: "BR", x: 97, y: 78, anchor: "bottom-right" },
+  BL: { id: "BL", x: 3,   y: 65, anchor: "top-left" },
+  BC: { id: "BC", x: 50,  y: 65, anchor: "center" },
+  BR: { id: "BR", x: 97,  y: 65, anchor: "top-right" },
 };
 
-// Preferred slot order per overlay type
+// Preferred slot order per overlay type.
+// Captions strongly prefer top positions — they're scene-setting labels.
 const DIALOGUE_SLOTS = ["TL", "TR", "ML", "MR", "BL", "BR"];
-const NARRATION_SLOTS = ["TL", "BL", "BR", "TR", "TC", "BC"];
-const CAPTION_SLOTS = ["TC", "BC", "TL", "BL", "TR", "BR"];
+const NARRATION_SLOTS = ["TL", "TR", "BL", "BR", "ML", "MR"];
+const CAPTION_SLOTS = ["TC", "TR", "TL", "BC", "BR", "BL"];
 
 /** Padding added to each side of estimated bounding boxes (in %) */
 const BBOX_PADDING = 4;
+
+/** Don't let collision nudges push overlays past these Y bounds */
+const MIN_Y = -5;
+const MAX_Y = 75;
 
 function slotOrder(type: OverlayType): string[] {
   if (type === "dialogue") return DIALOGUE_SLOTS;
@@ -99,7 +107,7 @@ function estimateBBox(
   const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
   const heightPct = Math.min(35, lines * 6 + 5);
 
-  let left: number, top: number;
+  let left: number;
 
   // Horizontal positioning based on anchor
   if (slot.anchor === "top-left" || slot.anchor === "bottom-left") {
@@ -111,17 +119,8 @@ function estimateBBox(
     left = slot.x - widthPct / 2;
   }
 
-  // Vertical positioning based on anchor
-  if (
-    slot.anchor === "top-left" ||
-    slot.anchor === "top-right" ||
-    slot.anchor === "center"
-  ) {
-    top = slot.y;
-  } else {
-    // bottom-*
-    top = slot.y - heightPct;
-  }
+  // All slots now use top-anchored positioning (y = top of box)
+  const top = slot.y;
 
   // Add padding on all sides
   return {
@@ -212,8 +211,7 @@ export function placeOverlays(
       }
     }
 
-    // Still nothing? Take first unused slot even if it overlaps
-    // (collision resolution below will try to fix it)
+    // Still nothing? Take first unused preferred slot even if it overlaps
     if (!bestSlotId) {
       for (const slotId of preferred) {
         if (!used.has(slotId)) {
@@ -260,8 +258,6 @@ export function placeOverlays(
       for (let j = i + 1; j < assignments.length; j++) {
         if (!bboxOverlap(assignments[i].bbox, assignments[j].bbox)) continue;
 
-        // Determine whether to nudge horizontally or vertically
-        // based on which overlap dimension is smaller (less displacement)
         const overlapX = Math.min(
           assignments[i].bbox.right - assignments[j].bbox.left,
           assignments[j].bbox.right - assignments[i].bbox.left
@@ -272,7 +268,6 @@ export function placeOverlays(
         );
 
         if (overlapX < overlapY) {
-          // Nudge horizontally — push j away from i
           const nudge = overlapX + 3;
           const dir =
             assignments[j].bbox.left > assignments[i].bbox.left ? 1 : -1;
@@ -280,13 +275,20 @@ export function placeOverlays(
           assignments[j].bbox.left += nudge * dir;
           assignments[j].bbox.right += nudge * dir;
         } else {
-          // Nudge vertically — push j down (or up if j is above i)
+          // Nudge vertically — prefer pushing UP (toward top of panel)
+          // to avoid ambiguity with panel below
           const nudge = overlapY + 3;
           const dir =
-            assignments[j].bbox.top > assignments[i].bbox.top ? 1 : -1;
-          assignments[j].overlay.y += nudge * dir;
-          assignments[j].bbox.top += nudge * dir;
-          assignments[j].bbox.bottom += nudge * dir;
+            assignments[j].bbox.top < assignments[i].bbox.top ? -1 : 1;
+          const newY = assignments[j].overlay.y + nudge * dir;
+
+          // Clamp to keep within panel bounds
+          const clampedY = Math.max(MIN_Y, Math.min(MAX_Y, newY));
+          const actualNudge = clampedY - assignments[j].overlay.y;
+
+          assignments[j].overlay.y = clampedY;
+          assignments[j].bbox.top += actualNudge;
+          assignments[j].bbox.bottom += actualNudge;
         }
         anyNudged = true;
       }
