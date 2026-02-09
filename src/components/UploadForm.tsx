@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   ComicScript,
   ComicPanel as ComicPanelType,
@@ -15,12 +15,13 @@ import type {
   SaveArticleResponse,
   ArticleManifest,
   CharacterVoiceProfile,
+  UserDecision,
+  PendingDecision,
 } from "@/lib/types";
 import { placeOverlays } from "@/lib/bubblePlacement";
 import { buildVoiceProfiles } from "@/lib/voiceMapping";
 import GenerationProgress from "./GenerationProgress";
-import RetryCarousel from "./RetryCarousel";
-import type { FailedItems } from "./RetryCarousel";
+import FailureDecision from "./FailureDecision";
 
 const CONCURRENCY_LIMIT = 5;
 const TARGET_WORDS_PER_CHUNK = 600;
@@ -80,8 +81,26 @@ function countMissingAudio(script: ComicScript): number {
   return missing;
 }
 
+/** Get human-readable labels for missing TTS items. */
+function getMissingAudioLabels(script: ComicScript): string[] {
+  const labels: string[] = [];
+  for (const page of script.pages) {
+    for (const panel of page.panels) {
+      for (const overlay of panel.overlays) {
+        if (overlay.type === "dialogue" && overlay.speaker && !overlay.audioUrl) {
+          labels.push(`Panel ${panel.panelIndex + 1}: ${overlay.speaker}`);
+        }
+      }
+    }
+  }
+  return labels;
+}
+
 export default function UploadForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const resumeSlug = searchParams.get("resume");
+
   const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -97,7 +116,8 @@ export default function UploadForm() {
   const [currentVoice, setCurrentVoice] = useState(0);
   const [totalVoices, setTotalVoices] = useState(0);
   const [voiceSubStage, setVoiceSubStage] = useState<"describing" | "creating" | "speaking" | undefined>(undefined);
-  const [failedItems, setFailedItems] = useState<FailedItems | null>(null);
+  const [pendingDecision, setPendingDecision] = useState<PendingDecision | null>(null);
+  const [resumeReady, setResumeReady] = useState(false);
   const abortRef = useRef(false);
 
   // Persistent refs for retry across function calls
@@ -106,6 +126,65 @@ export default function UploadForm() {
   const voiceDescriptionsRef = useRef<Record<string, string>>({});
   const sampleLinesRef = useRef<Map<string, string>>(new Map());
   const speakerListRef = useRef<string[]>([]);
+  const decisionResolverRef = useRef<((d: UserDecision) => void) | null>(null);
+
+  /** Pause generation and wait for user input. */
+  async function waitForDecision(info: PendingDecision): Promise<UserDecision> {
+    return new Promise((resolve) => {
+      decisionResolverRef.current = resolve;
+      setPendingDecision(info);
+    });
+  }
+
+  function handleDecision(decision: UserDecision) {
+    setPendingDecision(null);
+    decisionResolverRef.current?.(decision);
+    decisionResolverRef.current = null;
+  }
+
+  /** Save manifest at any point. */
+  async function saveCurrentState(
+    script: ComicScript,
+    status: "partial" | "complete" | "generating",
+    skipAudio?: boolean
+  ) {
+    const voiceProfiles = buildVoiceProfiles(voiceMapRef.current);
+    const audioEnabled = !skipAudio && speakerListRef.current.length > 0;
+
+    setStage("saving");
+
+    const manifest: ArticleManifest = {
+      title: script.title,
+      slug: script.slug,
+      sourceUrl: script.sourceUrl,
+      artStyle: script.artStyle,
+      createdAt: new Date().toISOString(),
+      totalPanels: script.totalPanels,
+      pages: script.pages,
+      scriptUrl: script.scriptUrl,
+      placementVersion: 4,
+      status,
+      ...(audioEnabled && {
+        audioEnabled: true,
+        voiceData: {
+          voices: voiceProfiles,
+          generatedAt: new Date().toISOString(),
+        },
+      }),
+    };
+
+    const saveRes = await fetch("/api/save-article", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ manifest, password }),
+    });
+
+    const saveData: SaveArticleResponse = await saveRes.json();
+
+    if (!saveData.success) {
+      throw new Error(saveData.error || "Save failed");
+    }
+  }
 
   async function generatePanelsWithConcurrency(
     script: ComicScript
@@ -343,130 +422,325 @@ export default function UploadForm() {
     if (workers.length > 0) await Promise.all(workers);
   }
 
-  /** Check for remaining failures; save if all good, go to partial if not. */
-  async function checkFailuresAndFinalize(failedPanels: number[]) {
-    const script = scriptRef.current!;
-    const failedSpeakers = speakerListRef.current.filter(
-      (s) => !(s in voiceMapRef.current)
+  /** Extract all unique speakers from a script's dialogue overlays. */
+  function extractSpeakers(script: ComicScript): string[] {
+    const speakers = new Set<string>();
+    for (const page of script.pages) {
+      for (const panel of page.panels) {
+        for (const overlay of panel.overlays) {
+          if (overlay.type === "dialogue" && overlay.speaker) {
+            speakers.add(overlay.speaker);
+          }
+        }
+      }
+    }
+    return [...speakers];
+  }
+
+  /** Collect a sample dialogue line per speaker for Voice Design. */
+  function collectSampleLines(script: ComicScript): Map<string, string> {
+    const sampleLines = new Map<string, string>();
+    for (const page of script.pages) {
+      for (const panel of page.panels) {
+        for (const overlay of panel.overlays) {
+          if (
+            overlay.type === "dialogue" &&
+            overlay.speaker &&
+            !sampleLines.has(overlay.speaker)
+          ) {
+            sampleLines.set(overlay.speaker, overlay.text);
+          }
+        }
+      }
+    }
+    return sampleLines;
+  }
+
+  /** Describe voices for speakers that don't already have descriptions. */
+  async function describeVoicesForSpeakers(speakerList: string[], articleTitle: string) {
+    const needDescriptions = speakerList.filter(
+      (s) => !voiceDescriptionsRef.current[s]
     );
-    const missingAudio = countMissingAudio(script);
+    if (needDescriptions.length === 0) return;
 
-    const voiceProfiles = buildVoiceProfiles(voiceMapRef.current);
-    const audioEnabled = speakerListRef.current.length > 0;
-    const hasFailures = failedPanels.length > 0 || failedSpeakers.length > 0 || missingAudio > 0;
+    setStage("voices");
+    setVoiceSubStage("describing");
+    console.log(`[Voices] Describing ${needDescriptions.length} speakers...`);
 
-    // Always save current state (even partial) so the article stays up to date
-    setStage(hasFailures ? "saving" : "saving");
-
-    const manifest: ArticleManifest = {
-      title: script.title,
-      slug: script.slug,
-      sourceUrl: script.sourceUrl,
-      artStyle: script.artStyle,
-      createdAt: new Date().toISOString(),
-      totalPanels: script.totalPanels,
-      pages: script.pages,
-      scriptUrl: script.scriptUrl,
-      placementVersion: 4,
-      status: hasFailures ? "partial" : "complete",
-      ...(audioEnabled && {
-        audioEnabled: true,
-        voiceData: {
-          voices: voiceProfiles,
-          generatedAt: new Date().toISOString(),
-        },
-      }),
-    };
-
-    const saveRes = await fetch("/api/save-article", {
+    const descRes = await fetch("/api/describe-voices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ manifest, password }),
+      body: JSON.stringify({
+        speakers: needDescriptions,
+        articleTitle,
+        password,
+      }),
     });
 
-    const saveData: SaveArticleResponse = await saveRes.json();
+    const descText = await descRes.text();
+    const descLines = descText.split("\n").filter(Boolean);
+    const descResult: DescribeVoicesResponse =
+      descLines.length > 0
+        ? JSON.parse(descLines[descLines.length - 1])
+        : { success: false, error: "Empty response" };
 
-    if (!saveData.success) {
-      throw new Error(saveData.error || "Save failed");
+    if (!descResult.success || !descResult.descriptions) {
+      throw new Error(descResult.error || "Voice description failed");
     }
 
-    if (hasFailures) {
-      setFailedItems({
-        panels: failedPanels,
-        speakers: failedSpeakers,
-        ttsCount: missingAudio,
+    console.log("[Voices] Descriptions:", descResult.descriptions);
+    voiceDescriptionsRef.current = {
+      ...voiceDescriptionsRef.current,
+      ...descResult.descriptions,
+    };
+  }
+
+  /**
+   * Run voice creation with interactive decision loop.
+   * Returns true if pipeline should continue, false if terminated.
+   * Sets skipAudio=true via the returned flag if user chose "skip_section".
+   */
+  async function runVoiceCreationWithDecisions(
+    speakerList: string[]
+  ): Promise<{ continue: boolean; skipAudio: boolean }> {
+    setStage("voices");
+    setVoiceSubStage("creating");
+    setTotalVoices(speakerList.length);
+    setCurrentVoice(0);
+
+    // First pass
+    await createVoicesForSpeakers(speakerList);
+
+    // Decision loop
+    while (true) {
+      const failedSpeakers = speakerList.filter(
+        (s) => !(s in voiceMapRef.current)
+      );
+      if (failedSpeakers.length === 0) break;
+
+      const decision = await waitForDecision({
+        section: "voice_creation",
+        failedDetails: failedSpeakers.map((s) => `Speaker: ${s}`),
+        succeededCount: speakerList.length - failedSpeakers.length,
+        failedCount: failedSpeakers.length,
+        totalCount: speakerList.length,
       });
-      setStage("partial");
-    } else {
+
+      if (decision === "retry") {
+        setStage("voices");
+        setVoiceSubStage("creating");
+        setTotalVoices(failedSpeakers.length);
+        setCurrentVoice(0);
+        await createVoicesForSpeakers(failedSpeakers);
+        continue;
+      }
+      if (decision === "skip") {
+        break; // continue to TTS with whatever voices we have
+      }
+      if (decision === "skip_section") {
+        return { continue: true, skipAudio: true };
+      }
+      if (decision === "terminate") {
+        return { continue: false, skipAudio: false };
+      }
+    }
+
+    return { continue: true, skipAudio: false };
+  }
+
+  /**
+   * Run TTS with interactive decision loop.
+   * Returns true if pipeline should continue, false if terminated.
+   */
+  async function runTTSWithDecisions(
+    script: ComicScript
+  ): Promise<{ continue: boolean }> {
+    const voiceProfiles = buildVoiceProfiles(voiceMapRef.current);
+    if (voiceProfiles.length === 0) return { continue: true };
+
+    setStage("voices");
+    setVoiceSubStage("speaking");
+
+    // First pass
+    await generateVoicesWithConcurrency(script, voiceProfiles);
+
+    // Decision loop
+    while (true) {
+      const missing = countMissingAudio(script);
+      if (missing === 0) break;
+
+      const totalDialogues = script.pages.reduce(
+        (sum, page) =>
+          sum +
+          page.panels.reduce(
+            (pSum, panel) =>
+              pSum +
+              panel.overlays.filter(
+                (o) => o.type === "dialogue" && o.speaker
+              ).length,
+            0
+          ),
+        0
+      );
+
+      const decision = await waitForDecision({
+        section: "tts",
+        failedDetails: getMissingAudioLabels(script),
+        succeededCount: totalDialogues - missing,
+        failedCount: missing,
+        totalCount: totalDialogues,
+      });
+
+      if (decision === "retry") {
+        setStage("voices");
+        setVoiceSubStage("speaking");
+        await generateVoicesWithConcurrency(script, voiceProfiles);
+        continue;
+      }
+      if (decision === "skip" || decision === "skip_section") {
+        break; // continue to panels with partial audio
+      }
+      if (decision === "terminate") {
+        return { continue: false };
+      }
+    }
+
+    return { continue: true };
+  }
+
+  /**
+   * Run panel generation with interactive decision loop.
+   */
+  async function runPanelsWithDecisions(
+    script: ComicScript
+  ): Promise<void> {
+    const allPanels = script.pages.flatMap((p) => p.panels);
+    const pending = allPanels.filter((p) => !p.imageUrl);
+
+    setTotalPanels(pending.length);
+    setCurrentPanel(0);
+    setLatestImageUrl("");
+    setStage("panels");
+
+    // First pass
+    await generatePanelsWithConcurrency(script);
+
+    // Decision loop
+    while (true) {
+      const failed = script.pages
+        .flatMap((p) => p.panels)
+        .filter((p) => !p.imageUrl);
+      if (failed.length === 0) break;
+
+      const total = script.pages.flatMap((p) => p.panels).length;
+      const decision = await waitForDecision({
+        section: "panels",
+        failedDetails: failed.map((p) => `Panel ${p.panelIndex + 1}`),
+        succeededCount: total - failed.length,
+        failedCount: failed.length,
+        totalCount: total,
+      });
+
+      if (decision === "retry") {
+        setTotalPanels(failed.length);
+        setCurrentPanel(0);
+        setStage("panels");
+        await generatePanelsWithConcurrency(script);
+        continue;
+      }
+      // "skip" or "terminate" — both mean save as-is for the last stage
+      break;
+    }
+  }
+
+  /**
+   * Run the voice + panel pipeline with decision loops.
+   * Used by both handleSubmit (new articles) and handleResume.
+   */
+  async function runPipelineFromVoices(
+    script: ComicScript,
+    articleTitle: string,
+    needVoiceDescriptions: boolean
+  ) {
+    // Check if ElevenLabs is available
+    const checkRes = await fetch("/api/check-voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const checkData = await checkRes.json();
+
+    if (!checkData.success) {
+      throw new Error(
+        checkData.error ||
+          "ElevenLabs API key required for voice generation. Set ELEVENLABS_API_KEY in environment variables."
+      );
+    }
+
+    const speakerList = extractSpeakers(script);
+    speakerListRef.current = speakerList;
+
+    let skipAudio = false;
+
+    if (speakerList.length > 0) {
+      // Step 2a: Describe voices (if needed)
+      if (needVoiceDescriptions) {
+        await describeVoicesForSpeakers(speakerList, articleTitle);
+      }
+
+      // Collect sample lines (always needed for voice creation)
+      sampleLinesRef.current = collectSampleLines(script);
+
+      // Step 2b: Create voices (only for speakers missing voiceIds)
+      const speakersNeedingVoices = speakerList.filter(
+        (s) => !(s in voiceMapRef.current)
+      );
+
+      if (speakersNeedingVoices.length > 0) {
+        const voiceResult = await runVoiceCreationWithDecisions(speakersNeedingVoices);
+        if (!voiceResult.continue) {
+          await saveCurrentState(script, "partial");
+          setStage("partial");
+          return;
+        }
+        skipAudio = voiceResult.skipAudio;
+      }
+
+      // Step 2c: TTS (skip if user chose "Skip All Audio")
+      if (!skipAudio) {
+        const ttsResult = await runTTSWithDecisions(script);
+        if (!ttsResult.continue) {
+          await saveCurrentState(script, "partial");
+          setStage("partial");
+          return;
+        }
+      }
+    }
+
+    // Step 3: Panels
+    const hasMissingPanels = script.pages
+      .flatMap((p) => p.panels)
+      .some((p) => !p.imageUrl);
+
+    if (hasMissingPanels) {
+      await runPanelsWithDecisions(script);
+    }
+
+    // Step 4: Final save
+    const hasAnyFailures =
+      script.pages.flatMap((p) => p.panels).some((p) => !p.imageUrl) ||
+      (!skipAudio && countMissingAudio(script) > 0);
+    const finalStatus = hasAnyFailures ? "partial" : "complete";
+
+    await saveCurrentState(script, finalStatus, skipAudio);
+
+    if (finalStatus === "complete") {
       setStage("done");
       setTimeout(() => {
         router.push(`/article/${script.slug}`);
       }, 1500);
-    }
-  }
-
-  async function handleRetry() {
-    if (!scriptRef.current || !failedItems) return;
-
-    abortRef.current = false;
-    const script = scriptRef.current;
-    const prevFailed = { ...failedItems };
-    setFailedItems(null);
-
-    try {
-      // Retry voice creation for failed speakers
-      if (prevFailed.speakers.length > 0) {
-        setStage("voices");
-        setVoiceSubStage("creating");
-        setTotalVoices(prevFailed.speakers.length);
-        setCurrentVoice(0);
-
-        await createVoicesForSpeakers(prevFailed.speakers);
-      }
-
-      // Retry TTS for missing audio (includes overlays for newly created voices)
-      const voiceProfiles = buildVoiceProfiles(voiceMapRef.current);
-      const missingAudio = countMissingAudio(script);
-      if (missingAudio > 0 && voiceProfiles.length > 0) {
-        setStage("voices");
-        setVoiceSubStage("speaking");
-
-        await generateVoicesWithConcurrency(script, voiceProfiles);
-
-        // One more retry pass for TTS
-        const stillMissing = countMissingAudio(script);
-        if (stillMissing > 0) {
-          await generateVoicesWithConcurrency(script, voiceProfiles);
-        }
-      }
-
-      // Retry panels for missing images
-      const missingPanels = script.pages
-        .flatMap((p) => p.panels)
-        .filter((p) => !p.imageUrl);
-
-      let panelFailures: number[] = [];
-      if (missingPanels.length > 0) {
-        setStage("panels");
-        setTotalPanels(missingPanels.length);
-        setCurrentPanel(0);
-
-        const result = await generatePanelsWithConcurrency(script);
-        panelFailures = result.failedPanels;
-
-        // One more retry pass for panels
-        if (panelFailures.length > 0) {
-          const retry = await generatePanelsWithConcurrency(script);
-          panelFailures = retry.failedPanels;
-        }
-      }
-
-      await checkFailuresAndFinalize(panelFailures);
-    } catch (error) {
-      setStage("error");
-      setErrorMessage(
-        error instanceof Error ? error.message : "Retry failed"
-      );
+    } else {
+      setStage("partial");
     }
   }
 
@@ -480,7 +754,7 @@ export default function UploadForm() {
     setScriptPreview(null);
     setLatestImageUrl("");
     setScriptChunkProgress("");
-    setFailedItems(null);
+    setPendingDecision(null);
 
     // Reset refs
     scriptRef.current = null;
@@ -650,140 +924,8 @@ export default function UploadForm() {
         body: JSON.stringify({ manifest: earlyManifest, password }),
       });
 
-      // Step 2: Voice pipeline — describe → create → TTS
-      const checkRes = await fetch("/api/check-voice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const checkData = await checkRes.json();
-
-      if (!checkData.success) {
-        throw new Error(
-          checkData.error ||
-            "ElevenLabs API key required for voice generation. Set ELEVENLABS_API_KEY in environment variables."
-        );
-      }
-
-      // Extract all unique speakers from dialogue overlays
-      const allSpeakers = new Set<string>();
-      for (const page of script.pages) {
-        for (const panel of page.panels) {
-          for (const overlay of panel.overlays) {
-            if (overlay.type === "dialogue" && overlay.speaker) {
-              allSpeakers.add(overlay.speaker);
-            }
-          }
-        }
-      }
-
-      if (allSpeakers.size > 0) {
-        const speakerList = [...allSpeakers];
-        speakerListRef.current = speakerList;
-        setStage("voices");
-
-        // Step 2a: AI-generated voice descriptions
-        setVoiceSubStage("describing");
-        console.log(`[Voices] Describing ${speakerList.length} speakers...`);
-
-        const descRes = await fetch("/api/describe-voices", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            speakers: speakerList,
-            articleTitle: title,
-            password,
-          }),
-        });
-
-        const descText = await descRes.text();
-        const descLines = descText.split("\n").filter(Boolean);
-        const descResult: DescribeVoicesResponse =
-          descLines.length > 0
-            ? JSON.parse(descLines[descLines.length - 1])
-            : { success: false, error: "Empty response" };
-
-        if (!descResult.success || !descResult.descriptions) {
-          throw new Error(descResult.error || "Voice description failed");
-        }
-
-        console.log("[Voices] Descriptions:", descResult.descriptions);
-        voiceDescriptionsRef.current = descResult.descriptions;
-
-        // Collect a sample dialogue line per speaker for Voice Design
-        const sampleLines = new Map<string, string>();
-        for (const page of script.pages) {
-          for (const panel of page.panels) {
-            for (const overlay of panel.overlays) {
-              if (
-                overlay.type === "dialogue" &&
-                overlay.speaker &&
-                !sampleLines.has(overlay.speaker)
-              ) {
-                sampleLines.set(overlay.speaker, overlay.text);
-              }
-            }
-          }
-        }
-        sampleLinesRef.current = sampleLines;
-
-        // Step 2b: Create custom voices via ElevenLabs Voice Design
-        setVoiceSubStage("creating");
-        setTotalVoices(speakerList.length);
-        setCurrentVoice(0);
-
-        // First pass
-        await createVoicesForSpeakers(speakerList);
-
-        // Retry pass for any speakers that failed
-        const failedSpeakers = speakerList.filter(
-          (s) => !(s in voiceMapRef.current)
-        );
-        if (failedSpeakers.length > 0) {
-          console.log(`[Voices] Retrying ${failedSpeakers.length} failed voice creations...`);
-          setTotalVoices(failedSpeakers.length);
-          setCurrentVoice(0);
-          await createVoicesForSpeakers(failedSpeakers);
-        }
-
-        // Step 2c: Generate TTS audio with created voices (for speakers that have voiceIds)
-        const voiceProfiles = buildVoiceProfiles(voiceMapRef.current);
-        if (voiceProfiles.length > 0) {
-          setVoiceSubStage("speaking");
-
-          // First pass
-          await generateVoicesWithConcurrency(script, voiceProfiles);
-
-          // Retry pass for failed TTS
-          const missingAudio = countMissingAudio(script);
-          if (missingAudio > 0) {
-            console.log(`[Voices] Retrying ${missingAudio} failed TTS clips...`);
-            await generateVoicesWithConcurrency(script, voiceProfiles);
-          }
-        }
-      }
-
-      // Step 3: Generate all panel images
-      setTotalPanels(allPanels.length);
-      setCurrentPanel(0);
-      setLatestImageUrl("");
-      setStage("panels");
-
-      // First pass
-      const result = await generatePanelsWithConcurrency(script);
-
-      // Retry pass for failed panels
-      let panelFailures = result.failedPanels;
-      if (panelFailures.length > 0) {
-        console.log(`[Panels] Retrying ${panelFailures.length} failed panels...`);
-        setTotalPanels(panelFailures.length);
-        setCurrentPanel(0);
-        const retry = await generatePanelsWithConcurrency(script);
-        panelFailures = retry.failedPanels;
-      }
-
-      // Check for any remaining failures — save if clean, go partial if not
-      await checkFailuresAndFinalize(panelFailures);
+      // Run voice + panel pipeline with decision loops
+      await runPipelineFromVoices(script, title, true);
     } catch (error) {
       setStage("error");
       setErrorMessage(
@@ -792,31 +934,158 @@ export default function UploadForm() {
     }
   }
 
+  /** Resume an incomplete article. */
+  const handleResume = useCallback(async () => {
+    if (!resumeSlug || !password) return;
+
+    abortRef.current = false;
+    setStage("saving"); // show "loading" state while fetching manifest
+    setErrorMessage("");
+    setPendingDecision(null);
+
+    try {
+      const res = await fetch("/api/get-manifest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: resumeSlug, password }),
+      });
+
+      const data = await res.json();
+      if (!data.success || !data.manifest) {
+        throw new Error(data.error || "Failed to load article");
+      }
+
+      const manifest: ArticleManifest = data.manifest;
+
+      // Reconstruct script from manifest
+      const script: ComicScript = {
+        title: manifest.title,
+        slug: manifest.slug,
+        sourceUrl: manifest.sourceUrl,
+        artStyle: manifest.artStyle,
+        totalPanels: manifest.totalPanels,
+        pages: manifest.pages,
+        scriptUrl: manifest.scriptUrl,
+      };
+
+      scriptRef.current = script;
+      setScriptPreview(script);
+      setTitle(manifest.title);
+      setSourceUrl(manifest.sourceUrl);
+
+      // Reconstruct voiceMapRef from existing voice data
+      voiceMapRef.current = {};
+      voiceDescriptionsRef.current = {};
+      if (manifest.voiceData?.voices) {
+        for (const voice of manifest.voiceData.voices) {
+          voiceMapRef.current[voice.speaker] = {
+            voiceId: voice.voiceId,
+            description: voice.voiceDescription,
+          };
+          voiceDescriptionsRef.current[voice.speaker] = voice.voiceDescription;
+        }
+      }
+
+      // Determine what needs to be done
+      const speakers = extractSpeakers(script);
+      speakerListRef.current = speakers;
+      sampleLinesRef.current = collectSampleLines(script);
+
+      const speakersWithoutVoices = speakers.filter(
+        (s) => !(s in voiceMapRef.current)
+      );
+      const needVoiceDescriptions = speakersWithoutVoices.length > 0;
+
+      console.log(
+        `[Resume] Article "${manifest.title}": ${speakersWithoutVoices.length} speakers need voices, ${countMissingAudio(script)} missing TTS, ${script.pages.flatMap((p) => p.panels).filter((p) => !p.imageUrl).length} missing panels`
+      );
+
+      // Run the pipeline for missing items
+      await runPipelineFromVoices(script, manifest.title, needVoiceDescriptions);
+    } catch (error) {
+      setStage("error");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Resume failed"
+      );
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeSlug, password]);
+
+  // If we have a resume slug, show the password prompt + resume button
+  useEffect(() => {
+    if (resumeSlug) {
+      setResumeReady(true);
+      setExpanded(false); // hide the create form
+    }
+  }, [resumeSlug]);
+
   const isFormDisabled = stage !== "idle" && stage !== "error";
+  const isResuming = !!resumeSlug && resumeReady;
 
   return (
     <div>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 mx-auto text-sm font-medium text-gray-400 hover:text-amber-400 transition-colors mb-4"
-      >
-        <svg
-          className={`w-4 h-4 transition-transform ${expanded ? "rotate-90" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 5l7 7-7 7"
-          />
-        </svg>
-        {expanded ? "Hide form" : "Create new graphic novel"}
-      </button>
+      {/* Resume mode UI */}
+      {isResuming && stage === "idle" && (
+        <div className="max-w-xl mx-auto mb-6">
+          <div className="p-6 bg-gray-900 rounded-xl border border-amber-400/30">
+            <h3 className="text-amber-400 text-lg font-semibold mb-2">
+              Resume Incomplete Article
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Resuming: <span className="text-gray-200">{resumeSlug}</span>
+            </p>
+            <div className="mb-4">
+              <label
+                htmlFor="resumePassword"
+                className="block text-sm font-medium text-gray-300 mb-1"
+              >
+                Password
+              </label>
+              <input
+                id="resumePassword"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Admin password"
+                required
+                className="w-full px-4 py-2.5 bg-gray-950 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+              />
+            </div>
+            <button
+              onClick={handleResume}
+              disabled={!password}
+              className="w-full py-3 bg-amber-500 text-gray-900 font-bold rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Resume Generation
+            </button>
+          </div>
+        </div>
+      )}
 
-      {expanded && (
+      {/* Create new article toggle */}
+      {!isResuming && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-2 mx-auto text-sm font-medium text-gray-400 hover:text-amber-400 transition-colors mb-4"
+        >
+          <svg
+            className={`w-4 h-4 transition-transform ${expanded ? "rotate-90" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+          {expanded ? "Hide form" : "Create new graphic novel"}
+        </button>
+      )}
+
+      {!isResuming && expanded && (
         <form onSubmit={handleSubmit} className="max-w-xl mx-auto space-y-5">
           <div>
             <label
@@ -907,27 +1176,41 @@ export default function UploadForm() {
         </form>
       )}
 
-      <GenerationProgress
-        stage={stage}
-        currentPanel={currentPanel}
-        totalPanels={totalPanels}
-        errorMessage={errorMessage}
-        scriptPreview={scriptPreview}
-        latestImageUrl={latestImageUrl}
-        scriptChunkProgress={scriptChunkProgress}
-        currentVoice={currentVoice}
-        totalVoices={totalVoices}
-        voiceSubStage={voiceSubStage}
-      />
-
-      {stage === "partial" && scriptRef.current && failedItems && (
-        <RetryCarousel
-          panels={scriptRef.current.pages
-            .flatMap((p) => p.panels)
-            .map((p) => ({ panelIndex: p.panelIndex, imageUrl: p.imageUrl }))}
-          failedItems={failedItems}
-          onRetry={handleRetry}
+      {/* Decision UI takes precedence over progress when paused */}
+      {pendingDecision ? (
+        <FailureDecision
+          decision={pendingDecision}
+          onDecision={handleDecision}
         />
+      ) : (
+        <GenerationProgress
+          stage={stage}
+          currentPanel={currentPanel}
+          totalPanels={totalPanels}
+          errorMessage={errorMessage}
+          scriptPreview={scriptPreview}
+          latestImageUrl={latestImageUrl}
+          scriptChunkProgress={scriptChunkProgress}
+          currentVoice={currentVoice}
+          totalVoices={totalVoices}
+          voiceSubStage={voiceSubStage}
+        />
+      )}
+
+      {stage === "partial" && scriptRef.current && (
+        <div className="w-full max-w-xl mx-auto mt-4">
+          <div className="p-4 bg-gray-900 rounded-xl border border-gray-800 text-center">
+            <p className="text-gray-400 text-sm mb-3">
+              Saved as incomplete. You can resume from the home page later.
+            </p>
+            <button
+              onClick={() => router.push(`/article/${scriptRef.current!.slug}`)}
+              className="px-6 py-2.5 bg-amber-500 text-gray-900 font-bold rounded-lg hover:bg-amber-400 transition-colors"
+            >
+              View Article
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

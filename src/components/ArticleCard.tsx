@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ArticleIndexEntry } from "@/lib/types";
 
 interface ArticleCardProps {
@@ -9,6 +10,7 @@ interface ArticleCardProps {
 }
 
 export default function ArticleCard({ article, onDelete }: ArticleCardProps) {
+  const router = useRouter();
   const date = new Date(article.createdAt).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -65,6 +67,19 @@ export default function ArticleCard({ article, onDelete }: ArticleCardProps) {
             }`}>
               {isGenerating ? "In Progress" : "Incomplete"}
             </div>
+          )}
+          {/* Resume button for partial articles */}
+          {isPartial && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                router.push(`/?resume=${article.slug}`);
+              }}
+              className="absolute bottom-2 left-2 right-2 py-2 bg-amber-500/90 text-gray-900 text-xs font-bold rounded-lg hover:bg-amber-400 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              Resume
+            </button>
           )}
         </div>
 

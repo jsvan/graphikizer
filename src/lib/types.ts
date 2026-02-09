@@ -129,6 +129,17 @@ export type GenerationStage =
   | "error"
   | "partial";
 
+// Interactive failure handling
+export type UserDecision = "retry" | "skip" | "skip_section" | "terminate";
+export type PipelineSection = "voice_creation" | "tts" | "panels";
+export interface PendingDecision {
+  section: PipelineSection;
+  failedDetails: string[];
+  succeededCount: number;
+  failedCount: number;
+  totalCount: number;
+}
+
 // Article summary for the index
 export interface ArticleIndexEntry {
   title: string;

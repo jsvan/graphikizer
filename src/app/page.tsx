@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import UploadForm from "@/components/UploadForm";
 import ArticleGrid from "@/components/ArticleGrid";
 
@@ -19,7 +20,9 @@ export default function HomePage() {
 
       {/* Upload section */}
       <section className="max-w-6xl mx-auto px-4 py-8">
-        <UploadForm />
+        <Suspense>
+          <UploadForm />
+        </Suspense>
       </section>
 
       {/* Divider */}
