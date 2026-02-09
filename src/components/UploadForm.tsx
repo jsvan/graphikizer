@@ -127,6 +127,8 @@ export default function UploadForm() {
   const voiceDescriptionsRef = useRef<Record<string, string>>({});
   const sampleLinesRef = useRef<Map<string, string>>(new Map());
   const speakerListRef = useRef<string[]>([]);
+  // Maps original speaker name → consolidated voice name (identity if no consolidation)
+  const voiceGroupRef = useRef<Record<string, string>>({});
   const decisionResolverRef = useRef<((d: UserDecision) => void) | null>(null);
 
   /** Pause generation and wait for user input. */
@@ -320,7 +322,9 @@ export default function UploadForm() {
         for (let oi = 0; oi < panel.overlays.length; oi++) {
           const overlay = panel.overlays[oi];
           if (overlay.type === "dialogue" && overlay.speaker && !overlay.audioUrl) {
-            const voice = voiceMap.get(overlay.speaker);
+            // Look up voice via consolidation mapping (falls back to original name)
+            const voiceName = voiceGroupRef.current[overlay.speaker] || overlay.speaker;
+            const voice = voiceMap.get(voiceName);
             if (voice) {
               tasks.push({
                 pageIdx: pi,
@@ -710,11 +714,12 @@ export default function UploadForm() {
       console.warn("[Voices] Pre-cleanup failed (non-fatal):", err);
     }
 
-    let speakerList = extractSpeakers(script);
+    const allSpeakers = extractSpeakers(script);
 
-    // Consolidate speakers if too many (AI merge pass)
-    if (speakerList.length > 10) {
-      console.log(`[Speakers] ${speakerList.length} speakers — consolidating...`);
+    // Consolidate speakers if too many — only affects voice assignment, not display names
+    voiceGroupRef.current = {};
+    if (allSpeakers.length > 10) {
+      console.log(`[Speakers] ${allSpeakers.length} speakers — consolidating voice assignments...`);
       setStage("voices");
       setVoiceSubStage("describing");
 
@@ -723,7 +728,7 @@ export default function UploadForm() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            speakers: speakerList,
+            speakers: allSpeakers,
             articleTitle,
             password,
           }),
@@ -736,34 +741,9 @@ export default function UploadForm() {
           : { success: false };
 
         if (consResult.success && consResult.mapping) {
-          const mapping: Record<string, string> = consResult.mapping;
-
-          // Rewrite speaker names in all overlays
-          for (const page of script.pages) {
-            for (const panel of page.panels) {
-              for (const overlay of panel.overlays) {
-                if (overlay.speaker && mapping[overlay.speaker]) {
-                  overlay.speaker = mapping[overlay.speaker];
-                }
-              }
-            }
-          }
-
-          // Convert dialogue overlays with speaker="Narrator" to narration type
-          for (const page of script.pages) {
-            for (const panel of page.panels) {
-              for (const overlay of panel.overlays) {
-                if (overlay.type === "dialogue" && overlay.speaker === "Narrator") {
-                  overlay.type = "narration";
-                  delete overlay.speaker;
-                }
-              }
-            }
-          }
-
-          // Re-extract the now-consolidated speaker list
-          speakerList = extractSpeakers(script);
-          console.log(`[Speakers] Consolidated to ${speakerList.length} speakers: ${speakerList.join(", ")}`);
+          voiceGroupRef.current = consResult.mapping;
+          const voiceTargets = [...new Set(Object.values(consResult.mapping) as string[])];
+          console.log(`[Speakers] ${allSpeakers.length} speakers → ${voiceTargets.length} voices: ${voiceTargets.join(", ")}`);
         } else {
           console.warn("[Speakers] Consolidation failed, proceeding with original list");
         }
@@ -772,6 +752,10 @@ export default function UploadForm() {
       }
     }
 
+    // speakerList = unique voice names to create (consolidated targets, or original names if no consolidation)
+    const speakerList = Object.keys(voiceGroupRef.current).length > 0
+      ? [...new Set(Object.values(voiceGroupRef.current))]
+      : allSpeakers;
     speakerListRef.current = speakerList;
 
     let skipAudio = false;
@@ -859,6 +843,7 @@ export default function UploadForm() {
     voiceDescriptionsRef.current = {};
     sampleLinesRef.current = new Map();
     speakerListRef.current = [];
+    voiceGroupRef.current = {};
 
     try {
       // Step 1: Split article into chunks and generate script for each
@@ -1073,6 +1058,7 @@ export default function UploadForm() {
       // Reconstruct voiceMapRef from existing voice data
       voiceMapRef.current = {};
       voiceDescriptionsRef.current = {};
+      voiceGroupRef.current = {};
       if (manifest.voiceData?.voices) {
         for (const voice of manifest.voiceData.voices) {
           voiceMapRef.current[voice.speaker] = {

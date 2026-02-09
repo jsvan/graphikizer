@@ -6,15 +6,17 @@ export const maxDuration = 60;
 
 const MAX_SPEAKERS = 10;
 
-const SYSTEM_PROMPT = `You are an editor consolidating character voices for a graphic novel adaptation. Given a list of speaker names, merge them down to at most ${MAX_SPEAKERS} distinct speakers.
+const SYSTEM_PROMPT = `You are an editor consolidating character voices for a graphic novel adaptation. Given a list of speaker names, merge them down to at most ${MAX_SPEAKERS} distinct voice actors.
+
+This controls which VOICE is used, not the displayed name. The original speaker attribution stays visible in the comic — you are just deciding which speakers should SOUND alike (share a voice).
 
 Rules:
-1. Keep named real people (e.g. "Emmanuel Macron", "Olaf Scholz") as individual speakers — but if the same person appears under multiple names or titles, merge them to one canonical name.
-2. Merge generic/unnamed voices aggressively. Analyst types ("European Defense Analyst", "Strategic Analyst", "Security Expert", "Policy Expert", "Realist Scholar") → a single "Analyst". Officials → "Official". Critics → "Critic". Observers → "Narrator".
-3. Groups and collective voices ("European Leaders", "Polish Officials", "German Policymakers") → "Narrator" — narration doesn't need a voice.
-4. The speaker "Narrator" always exists and costs nothing. Use it liberally for generic voices.
+1. Keep named real people (e.g. "Emmanuel Macron", "Olaf Scholz") as individual voices — but if the same person appears under multiple names or titles, pick one canonical name for the voice.
+2. Merge generic/unnamed speakers aggressively. Analyst types ("European Defense Analyst", "Strategic Analyst", "Security Expert", "Policy Expert", "Realist Scholar") → a single "Analyst" voice. Officials → "Official". Critics → "Critic".
+3. Groups and collective voices ("European Leaders", "Polish Officials", "German Policymakers") → merge into a suitable generic voice like "Official" or "Analyst". Every speaker must map to a real voice that will be created.
+4. Do NOT map anything to "Narrator" — that is reserved for narration boxes which have no voice. Every speaker needs a voice.
 5. If you must keep more than ${MAX_SPEAKERS} because there are that many distinct named individuals, that's OK — but never exceed ${MAX_SPEAKERS + 2}.
-6. Output a JSON object mapping EVERY original speaker name to its consolidated name. If a speaker stays unchanged, still include it mapping to itself.`;
+6. Output a JSON object mapping EVERY original speaker name to its consolidated voice name. If a speaker keeps its own voice, map it to itself.`;
 
 interface ConsolidateRequest {
   speakers: string[];
@@ -72,7 +74,8 @@ Return a JSON object mapping every original name to its consolidated name. Examp
   "Strategic Analyst": "Analyst",
   "Emmanuel Macron": "Emmanuel Macron",
   "French President": "Emmanuel Macron",
-  "European Critics": "Narrator"
+  "European Critics": "Critic",
+  "Polish Officials": "Official"
 }`;
 
     // Use streaming with keepalive pattern (same as describe-voices)
@@ -106,10 +109,10 @@ Return a JSON object mapping every original name to its consolidated name. Examp
 
           const mapping: Record<string, string> = JSON.parse(cleaned);
 
-          // Ensure every original speaker is in the mapping
+          // Ensure every original speaker is in the mapping (keep original if missing)
           for (const s of speakers) {
             if (!(s in mapping)) {
-              mapping[s] = "Narrator";
+              mapping[s] = s;
             }
           }
 

@@ -22,8 +22,8 @@ const CONTENT_RULES = `CONTENT RULES (MOST IMPORTANT — read these first):
 
 8. SPEAKER CONSOLIDATION (CRITICAL): Limit the total number of unique speaker names to AT MOST 8-10 across the entire graphic novel. Each speaker requires an expensive custom voice, so consolidation is essential. Follow these rules:
    a. Use the SAME speaker name consistently for the same person across all panels. Do NOT create variants like "Emmanuel Macron" in one panel and "French President" in another — pick ONE name and reuse it.
-   b. For unnamed or generic voices (analysts, officials, critics), consolidate into a small set of recurring characters: e.g., "Analyst", "Narrator", "Official". Do NOT create unique speakers like "European Defense Analyst", "Strategic Analyst", "Security Expert", "Policy Expert" — merge these into one or two generic speakers.
-   c. For groups or collective voices ("European Leaders", "Polish Officials"), use "Narrator" instead — narration is free and doesn't need a voice.
+   b. For unnamed or generic voices (analysts, officials, critics), consolidate into a small set of recurring characters: e.g., "Analyst", "Critic", "Official". Do NOT create unique speakers like "European Defense Analyst", "Strategic Analyst", "Security Expert", "Policy Expert" — merge these into one or two generic speakers.
+   c. For groups or collective voices ("European Leaders", "Polish Officials"), attribute them to a generic speaker like "Official" or "Analyst" rather than inventing a new name.
    d. Before creating a new speaker, ask: can an existing speaker deliver this line? If yes, reuse them.`;
 
 const PANEL_LAYOUT_RULES = `PANEL LAYOUT (each panel gets a "layout" field):
