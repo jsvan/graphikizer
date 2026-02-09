@@ -48,11 +48,23 @@ export async function POST(req: NextRequest) {
     }
 
     const scriptRes = await fetch(scriptBlobs[0].url);
-    const scriptData = (await scriptRes.json()) as {
+    const scriptText = await scriptRes.text();
+    let scriptData: {
       artStyle: ArtStyle;
       totalPanels: number;
       pages: ComicPage[];
     };
+    try {
+      scriptData = JSON.parse(scriptText);
+    } catch (e) {
+      return NextResponse.json({
+        success: false,
+        error: `script.json parse failed: ${e instanceof Error ? e.message : e}`,
+        scriptLength: scriptText.length,
+        scriptPreview: scriptText.slice(0, 200),
+        scriptEnd: scriptText.slice(-200),
+      });
+    }
 
     // 2. Discover all panel images
     const { blobs: panelBlobs } = await list({
