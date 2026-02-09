@@ -698,6 +698,18 @@ export default function UploadForm() {
       );
     }
 
+    // Clean slate: delete any leftover graphikizer voices before creating new ones
+    console.log("[Voices] Cleaning up old voices before starting...");
+    try {
+      await fetch("/api/delete-voices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, deleteAll: true }),
+      });
+    } catch (err) {
+      console.warn("[Voices] Pre-cleanup failed (non-fatal):", err);
+    }
+
     const speakerList = extractSpeakers(script);
     speakerListRef.current = speakerList;
 

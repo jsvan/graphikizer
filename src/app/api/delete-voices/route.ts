@@ -3,19 +3,80 @@ import { verifyPassword } from "@/lib/auth";
 
 export const maxDuration = 60;
 
+const VOICE_PREFIX = "graphikizer-";
+
 interface DeleteVoicesRequest {
-  voiceIds: string[];
   password: string;
+  voiceIds?: string[];
+  deleteAll?: boolean; // Delete all graphikizer-* voices
+}
+
+async function listGraphikizerVoices(apiKey: string): Promise<string[]> {
+  const res = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: { "xi-api-key": apiKey },
+  });
+
+  if (!res.ok) {
+    console.warn(`[DeleteVoices] Failed to list voices: ${res.status}`);
+    return [];
+  }
+
+  const data = await res.json();
+  const voices: { voice_id: string; name: string }[] = data.voices || [];
+  return voices
+    .filter((v) => v.name.startsWith(VOICE_PREFIX))
+    .map((v) => v.voice_id);
+}
+
+async function deleteVoiceIds(
+  apiKey: string,
+  voiceIds: string[]
+): Promise<{ deleted: number; failed: number }> {
+  let deleted = 0;
+  let failed = 0;
+
+  for (const voiceId of voiceIds) {
+    try {
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/voices/${voiceId}`,
+        {
+          method: "DELETE",
+          headers: { "xi-api-key": apiKey },
+        }
+      );
+
+      if (res.ok) {
+        deleted++;
+      } else {
+        failed++;
+        console.warn(
+          `[DeleteVoices] Failed to delete ${voiceId}: ${res.status}`
+        );
+      }
+    } catch (err) {
+      failed++;
+      console.warn(`[DeleteVoices] Error deleting ${voiceId}:`, err);
+    }
+  }
+
+  return { deleted, failed };
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as DeleteVoicesRequest;
-    const { voiceIds, password } = body;
+    const { password, voiceIds, deleteAll } = body;
 
-    if (!voiceIds?.length || !password) {
+    if (!password) {
       return NextResponse.json(
-        { success: false, error: "Missing required fields" },
+        { success: false, error: "Missing password" },
+        { status: 400 }
+      );
+    }
+
+    if (!deleteAll && (!voiceIds || voiceIds.length === 0)) {
+      return NextResponse.json(
+        { success: false, error: "Provide voiceIds or set deleteAll: true" },
         { status: 400 }
       );
     }
@@ -36,37 +97,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let deleted = 0;
-    let failed = 0;
+    const idsToDelete = deleteAll
+      ? await listGraphikizerVoices(apiKey)
+      : voiceIds!;
 
-    // Delete voices sequentially to avoid rate limits
-    for (const voiceId of voiceIds) {
-      try {
-        const res = await fetch(
-          `https://api.elevenlabs.io/v1/voices/${voiceId}`,
-          {
-            method: "DELETE",
-            headers: { "xi-api-key": apiKey },
-          }
-        );
-
-        if (res.ok) {
-          deleted++;
-          console.log(`[DeleteVoices] Deleted voice ${voiceId}`);
-        } else {
-          failed++;
-          console.warn(
-            `[DeleteVoices] Failed to delete ${voiceId}: ${res.status}`
-          );
-        }
-      } catch (err) {
-        failed++;
-        console.warn(`[DeleteVoices] Error deleting ${voiceId}:`, err);
-      }
+    if (idsToDelete.length === 0) {
+      console.log("[DeleteVoices] No voices to delete");
+      return NextResponse.json({ success: true, deleted: 0, failed: 0 });
     }
 
     console.log(
-      `[DeleteVoices] Done: ${deleted} deleted, ${failed} failed out of ${voiceIds.length}`
+      `[DeleteVoices] Deleting ${idsToDelete.length} voice(s)${deleteAll ? " (all graphikizer-*)" : ""}...`
+    );
+
+    const { deleted, failed } = await deleteVoiceIds(apiKey, idsToDelete);
+
+    console.log(
+      `[DeleteVoices] Done: ${deleted} deleted, ${failed} failed out of ${idsToDelete.length}`
     );
 
     return NextResponse.json({ success: true, deleted, failed });
