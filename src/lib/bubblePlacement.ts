@@ -1,13 +1,11 @@
-import type { TextOverlay, PanelLayout, OverlayType } from "./types";
+import type { TextOverlay, PanelLayout, OverlayType, FocalPoint } from "./types";
 
 /**
  * Slot-based bubble placement system for comic panels.
  *
- * Places overlays around the panel perimeter, keeping the center 50%
- * (the "sacrosanct zone") clear so the focal artwork is visible.
- *
- * Key rule: every overlay must clearly belong to its panel. Nothing
- * should sit at the bottom edge where it's ambiguous between panels.
+ * Places overlays around the panel perimeter, keeping the focal area
+ * clear so the main subject is visible. Uses the panel's focalPoint
+ * to vary placement across panels — text goes AWAY from the subject.
  */
 
 interface Slot {
@@ -18,8 +16,6 @@ interface Slot {
 }
 
 // 8 placement slots around the panel perimeter.
-// Bottom slots pulled up to y:65 so overlays clearly belong to this panel.
-// ML/MR sit in the gutter between columns (negative/over-100 x).
 const SLOTS: Record<string, Slot> = {
   TL: { id: "TL", x: 3,   y: 3,  anchor: "top-left" },
   TC: { id: "TC", x: 50,  y: 2,  anchor: "center" },
@@ -31,11 +27,26 @@ const SLOTS: Record<string, Slot> = {
   BR: { id: "BR", x: 97,  y: 65, anchor: "top-right" },
 };
 
-// Preferred slot order per overlay type.
-// Captions strongly prefer top positions — they're scene-setting labels.
+// Base slot preferences per overlay type (used when no focal point)
 const DIALOGUE_SLOTS = ["TL", "TR", "ML", "MR", "BL", "BR"];
 const NARRATION_SLOTS = ["TL", "TR", "BL", "BR", "ML", "MR"];
 const CAPTION_SLOTS = ["TC", "TR", "TL", "BC", "BR", "BL"];
+
+/**
+ * Slots to AVOID for each focal point value.
+ * Text placed in these slots would cover the main subject.
+ */
+const FOCAL_AVOID: Record<string, Set<string>> = {
+  "center":       new Set(["TC", "BC", "ML", "MR"]),
+  "left":         new Set(["TL", "ML", "BL"]),
+  "right":        new Set(["TR", "MR", "BR"]),
+  "top":          new Set(["TL", "TC", "TR"]),
+  "bottom":       new Set(["BL", "BC", "BR"]),
+  "top-left":     new Set(["TL", "TC", "ML"]),
+  "top-right":    new Set(["TR", "TC", "MR"]),
+  "bottom-left":  new Set(["BL", "BC", "ML"]),
+  "bottom-right": new Set(["BR", "BC", "MR"]),
+};
 
 /** Padding added to each side of estimated bounding boxes (in %) */
 const BBOX_PADDING = 4;
@@ -44,10 +55,25 @@ const BBOX_PADDING = 4;
 const MIN_Y = -5;
 const MAX_Y = 75;
 
-function slotOrder(type: OverlayType): string[] {
-  if (type === "dialogue") return DIALOGUE_SLOTS;
-  if (type === "narration") return NARRATION_SLOTS;
-  return CAPTION_SLOTS;
+/**
+ * Get slot preference order for an overlay type, reordered to avoid
+ * the focal point. Slots near the focal point are pushed to the end.
+ */
+function slotOrder(type: OverlayType, focalPoint?: FocalPoint): string[] {
+  let base: string[];
+  if (type === "dialogue") base = DIALOGUE_SLOTS;
+  else if (type === "narration") base = NARRATION_SLOTS;
+  else base = CAPTION_SLOTS;
+
+  if (!focalPoint) return base;
+
+  const avoid = FOCAL_AVOID[focalPoint];
+  if (!avoid) return base;
+
+  // Preferred (far from focal) first, then avoided (near focal) as fallback
+  const preferred = base.filter((s) => !avoid.has(s));
+  const fallback = base.filter((s) => avoid.has(s));
+  return [...preferred, ...fallback];
 }
 
 /**
@@ -86,10 +112,6 @@ function computeWidth(
   return width;
 }
 
-/**
- * Estimate a bounding box (in % coordinates) for an overlay at a given slot.
- * Includes padding on all sides so near-misses are treated as overlaps.
- */
 interface BBox {
   left: number;
   top: number;
@@ -102,27 +124,22 @@ function estimateBBox(
   widthPct: number,
   text: string
 ): BBox {
-  // Estimate height: ~12 chars per line at 30% width, each line ~6% of panel height
   const charsPerLine = Math.max(8, Math.round((widthPct / 100) * 35));
   const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
   const heightPct = Math.min(35, lines * 6 + 5);
 
   let left: number;
 
-  // Horizontal positioning based on anchor
   if (slot.anchor === "top-left" || slot.anchor === "bottom-left") {
     left = slot.x;
   } else if (slot.anchor === "top-right" || slot.anchor === "bottom-right") {
     left = slot.x - widthPct;
   } else {
-    // center
     left = slot.x - widthPct / 2;
   }
 
-  // All slots now use top-anchored positioning (y = top of box)
   const top = slot.y;
 
-  // Add padding on all sides
   return {
     left: left - BBOX_PADDING,
     top: top - BBOX_PADDING,
@@ -140,9 +157,6 @@ function bboxOverlap(a: BBox, b: BBox): boolean {
   );
 }
 
-/**
- * Check if a candidate bbox overlaps any already-placed bbox.
- */
 function overlapsAny(candidate: BBox, placed: BBox[]): boolean {
   for (const existing of placed) {
     if (bboxOverlap(candidate, existing)) return true;
@@ -152,15 +166,15 @@ function overlapsAny(candidate: BBox, placed: BBox[]): boolean {
 
 /**
  * Place overlays for a single panel.
- * Assigns each overlay to a perimeter slot, checking for bbox overlap
- * during assignment (not just after). Computes fixed width and does
- * final collision resolution as a safety net.
+ * Uses focalPoint to vary placement — text is placed AWAY from the
+ * main subject, creating natural variety across panels.
  *
  * Mutates overlay x, y, anchor, maxWidthPercent in place and returns them.
  */
 export function placeOverlays(
   overlays: TextOverlay[],
-  _layout: PanelLayout
+  _layout: PanelLayout,
+  focalPoint?: FocalPoint
 ): TextOverlay[] {
   if (overlays.length === 0) return overlays;
 
@@ -181,7 +195,7 @@ export function placeOverlays(
   const used = new Set<string>();
 
   for (const overlay of sorted) {
-    const preferred = slotOrder(overlay.type);
+    const preferred = slotOrder(overlay.type, focalPoint);
     const width = computeWidth(overlay.text, overlay.type, overlays.length);
 
     let bestSlotId: string | null = null;
@@ -251,7 +265,7 @@ export function placeOverlays(
     assignments.push({ overlay, slotId: bestSlotId, bbox: bestBBox! });
   }
 
-  // Safety-net collision resolution: nudge any remaining overlaps
+  // Safety-net collision resolution
   for (let pass = 0; pass < 5; pass++) {
     let anyNudged = false;
     for (let i = 0; i < assignments.length; i++) {
@@ -275,14 +289,10 @@ export function placeOverlays(
           assignments[j].bbox.left += nudge * dir;
           assignments[j].bbox.right += nudge * dir;
         } else {
-          // Nudge vertically — prefer pushing UP (toward top of panel)
-          // to avoid ambiguity with panel below
           const nudge = overlapY + 3;
           const dir =
             assignments[j].bbox.top < assignments[i].bbox.top ? -1 : 1;
           const newY = assignments[j].overlay.y + nudge * dir;
-
-          // Clamp to keep within panel bounds
           const clampedY = Math.max(MIN_Y, Math.min(MAX_Y, newY));
           const actualNudge = clampedY - assignments[j].overlay.y;
 

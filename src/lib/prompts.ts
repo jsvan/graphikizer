@@ -30,7 +30,17 @@ const OVERLAY_RULES = `TEXT OVERLAYS:
 - Types: "narration" (analytical content), "dialogue" (quotes, needs "speaker" field), "caption" (labels/dates/locations)
 - Positioning (x, y, anchor, maxWidthPercent) will be computed automatically by the layout engine — you may provide rough values but they will be overridden. Focus on text content, type, and speaker.
 - anchor: "top-left", "top-right", "bottom-left", "bottom-right", or "center"
-- x (0-100), y (0-100): approximate position hints`;
+- x (0-100), y (0-100): approximate position hints
+
+FOCAL POINT (each panel gets a "focalPoint" field):
+Where is the main visual subject in this panel's composition? The layout engine uses this to place text AWAY from the focal point, so faces and key imagery stay visible. VARY this across panels — not every scene is centered.
+Values: "center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"
+- A person speaking on the left → "left" or "top-left"
+- Two people facing each other → "center"
+- A crowd in the lower half → "bottom"
+- A skyline or landscape → "top" or "center"
+- A close-up portrait → "center"
+- A map or document on a table → "bottom" or "center"`;
 
 const ARTWORK_RULES = `ARTWORK DESCRIPTIONS (artworkPrompt field):
 The artworkPrompt for each panel will be sent directly to an AI image generation model (FLUX) as its prompt. Write it accordingly — this is a prompt for an image AI, not prose for a human reader.
@@ -104,6 +114,7 @@ OUTPUT FORMAT (strict JSON):
       "artworkPrompt": "Detailed visual description for image generation...",
       "sourceExcerpt": "The specific passage from the article this panel covers",
       "layout": "wide",
+      "focalPoint": "center",
       "overlays": [
         {
           "type": "narration",
@@ -171,6 +182,7 @@ OUTPUT FORMAT (strict JSON):
       "artworkPrompt": "In ${artStyle.name} style, ...",
       "sourceExcerpt": "The specific passage from the article this panel covers",
       "layout": "normal",
+      "focalPoint": "left",
       "overlays": [
         {
           "type": "dialogue",

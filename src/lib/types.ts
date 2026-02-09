@@ -19,6 +19,19 @@ export interface TextOverlay {
 // Panel layout sizes
 export type PanelLayout = "normal" | "wide" | "tall" | "large";
 
+// Where the main subject/focal point of the panel's composition is located.
+// Used by the placement algorithm to put text AWAY from the focal point.
+export type FocalPoint =
+  | "center"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
 // Per-panel margin adjustments (pixels)
 export interface PanelMargins {
   top?: number;
@@ -34,6 +47,8 @@ export interface ComicPanel {
   sourceExcerpt: string;
   overlays: TextOverlay[];
   layout: PanelLayout;
+  /** Where the main visual subject is in this panel's composition */
+  focalPoint?: FocalPoint;
   imageUrl?: string;
   panelMargins?: PanelMargins;
 }

@@ -253,7 +253,7 @@ export default function UploadForm() {
 
         // Run placement algorithm on each panel's overlays
         for (const panel of parsed.panels) {
-          panel.overlays = placeOverlays(panel.overlays, panel.layout);
+          panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
         }
 
         allPanels.push(...parsed.panels);
@@ -321,7 +321,7 @@ export default function UploadForm() {
         totalPanels: completedScript.totalPanels,
         pages: completedScript.pages,
         scriptUrl: completedScript.scriptUrl,
-        placementVersion: 3,
+        placementVersion: 4,
       };
 
       const saveRes = await fetch("/api/save-article", {
