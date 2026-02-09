@@ -18,7 +18,13 @@ const CONTENT_RULES = `CONTENT RULES (MOST IMPORTANT — read these first):
 
 6. sourceExcerpt FIELD: For each panel, copy the specific passage (1-3 sentences) from the article that the panel is illustrating.
 
-7. VARY OVERLAY POSITIONS. Do NOT put every overlay at x:5, y:5. Dialogue should be positioned near the speaker (often upper portion). Narration in corners. Captions at top or bottom edges. Use the full range of positions and anchors.`;
+7. VARY OVERLAY POSITIONS. Do NOT put every overlay at x:5, y:5. Dialogue should be positioned near the speaker (often upper portion). Narration in corners. Captions at top or bottom edges. Use the full range of positions and anchors.
+
+8. SPEAKER CONSOLIDATION (CRITICAL): Limit the total number of unique speaker names to AT MOST 8-10 across the entire graphic novel. Each speaker requires an expensive custom voice, so consolidation is essential. Follow these rules:
+   a. Use the SAME speaker name consistently for the same person across all panels. Do NOT create variants like "Emmanuel Macron" in one panel and "French President" in another — pick ONE name and reuse it.
+   b. For unnamed or generic voices (analysts, officials, critics), consolidate into a small set of recurring characters: e.g., "Analyst", "Narrator", "Official". Do NOT create unique speakers like "European Defense Analyst", "Strategic Analyst", "Security Expert", "Policy Expert" — merge these into one or two generic speakers.
+   c. For groups or collective voices ("European Leaders", "Polish Officials"), use "Narrator" instead — narration is free and doesn't need a voice.
+   d. Before creating a new speaker, ask: can an existing speaker deliver this line? If yes, reuse them.`;
 
 const PANEL_LAYOUT_RULES = `PANEL LAYOUT (each panel gets a "layout" field):
 - "normal" (2-col span, ~60%) — standard panel
@@ -50,6 +56,7 @@ The artworkPrompt for each panel will be sent directly to an AI image generation
 - Describe ONLY visual imagery: specific people, specific places, objects, lighting, composition, mood, camera angle, foreground/background.
 - 2-4 sentences, vivid and specific. Favor concrete nouns and adjectives over abstract descriptions.
 - USE REAL NAMES, NOT GENERIC TITLES. Write "Emmanuel Macron in a dark suit" not "the French leader", "Olaf Scholz at a podium" not "the German chancellor". When the article names a person, your prompt must use that specific name.
+- CONTENT SAFETY: Keep all artwork prompts suitable for general audiences. NEVER describe nudity, gore, graphic violence, blood, torture, sexual content, or gratuitous suffering. Depict conflicts through body language, facial expressions, symbolic imagery (broken objects, shadows, maps with arrows), and dramatic composition — NOT through graphic depictions. For military/war topics, show strategy rooms, leaders at tables, soldiers in formation, maps, equipment — not combat injuries or casualties.
 - BAD: "A scene showing the tension between European powers over defense spending" (abstract, the image model can't render 'tension' or 'defense spending')
 - GOOD: "In European Ligne Claire style, Emmanuel Macron and Olaf Scholz seated across a long oak table in the Élysée Palace, Macron leaning forward with hands clasped, Scholz looking down at documents, warm overhead lighting casting long shadows, French and German flags in the background"`;
 

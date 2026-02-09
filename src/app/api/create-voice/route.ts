@@ -32,13 +32,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cap at exactly 100 chars (API minimum) to minimize credit usage —
-    // Voice Design synthesizes audio from this text, costing 1 credit/char
-    const trimmedSample = sampleText.slice(0, 100);
-    const paddedSample =
-      trimmedSample.length < 100
-        ? (trimmedSample + " This is a sample of how I speak naturally.").slice(0, 100)
-        : trimmedSample;
+    // ElevenLabs Voice Design requires at least 100 chars of sample text.
+    // Pad short samples by repeating a natural filler sentence.
+    let paddedSample = sampleText;
+    while (paddedSample.length < 100) {
+      paddedSample += " Let me continue to explain my perspective on this important matter.";
+    }
+    // Cap to minimize credit usage (1 credit/char)
+    paddedSample = paddedSample.slice(0, 200);
 
     // Step 1: Design a voice from the description
     console.log(`[CreateVoice] Designing voice for "${speakerLabel}": ${voiceDescription}`);

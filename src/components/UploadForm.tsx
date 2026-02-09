@@ -24,6 +24,7 @@ import GenerationProgress from "./GenerationProgress";
 import FailureDecision from "./FailureDecision";
 
 const CONCURRENCY_LIMIT = 5;
+const VOICE_CONCURRENCY_LIMIT = 2; // ElevenLabs allows max 3 concurrent; keep headroom
 const TARGET_WORDS_PER_CHUNK = 600;
 const PANELS_PER_PAGE = 10;
 
@@ -184,6 +185,26 @@ export default function UploadForm() {
     if (!saveData.success) {
       throw new Error(saveData.error || "Save failed");
     }
+  }
+
+  /** Delete created ElevenLabs voices to free up voice slots. Fire-and-forget. */
+  function cleanupVoices() {
+    const voiceIds = Object.values(voiceMapRef.current).map((v) => v.voiceId);
+    if (voiceIds.length === 0) return;
+
+    console.log(`[Cleanup] Deleting ${voiceIds.length} created voices...`);
+    fetch("/api/delete-voices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voiceIds, password }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        console.log(`[Cleanup] Voice deletion: ${data.deleted} deleted, ${data.failed} failed`);
+      })
+      .catch((err) => {
+        console.warn("[Cleanup] Voice deletion error:", err);
+      });
   }
 
   async function generatePanelsWithConcurrency(
@@ -361,7 +382,7 @@ export default function UploadForm() {
     }
 
     const workers = Array.from(
-      { length: Math.min(CONCURRENCY_LIMIT, tasks.length) },
+      { length: Math.min(VOICE_CONCURRENCY_LIMIT, tasks.length) },
       () => worker()
     );
     await Promise.all(workers);
@@ -416,7 +437,7 @@ export default function UploadForm() {
     }
 
     const workers = Array.from(
-      { length: Math.min(CONCURRENCY_LIMIT, q.length) },
+      { length: Math.min(VOICE_CONCURRENCY_LIMIT, q.length) },
       () => worker()
     );
     if (workers.length > 0) await Promise.all(workers);
@@ -700,6 +721,7 @@ export default function UploadForm() {
         const voiceResult = await runVoiceCreationWithDecisions(speakersNeedingVoices);
         if (!voiceResult.continue) {
           await saveCurrentState(script, "partial");
+          cleanupVoices();
           setStage("partial");
           return;
         }
@@ -711,6 +733,7 @@ export default function UploadForm() {
         const ttsResult = await runTTSWithDecisions(script);
         if (!ttsResult.continue) {
           await saveCurrentState(script, "partial");
+          cleanupVoices();
           setStage("partial");
           return;
         }
@@ -733,6 +756,7 @@ export default function UploadForm() {
     const finalStatus = hasAnyFailures ? "partial" : "complete";
 
     await saveCurrentState(script, finalStatus, skipAudio);
+    cleanupVoices();
 
     if (finalStatus === "complete") {
       setStage("done");
