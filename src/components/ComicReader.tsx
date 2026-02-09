@@ -3,8 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { ArticleManifest, ComicPanel } from "@/lib/types";
 import ComicPage from "./ComicPage";
+import AudioComicPage from "./AudioComicPage";
 import PageControls from "./PageControls";
 import MobilePanelView from "./MobilePanelView";
+import AudioMobilePanelView from "./AudioMobilePanelView";
+import AudioToggle from "./AudioToggle";
 
 const MOBILE_BREAKPOINT = 640;
 
@@ -31,6 +34,7 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
   const isMobile = useIsMobile();
   const [currentPage, setCurrentPage] = useState(0);
   const [currentMobilePanel, setCurrentMobilePanel] = useState(0);
+  const [audioMode, setAudioMode] = useState(!!manifest.audioEnabled);
   const [editMode, setEditMode] = useState(false);
   const [editedManifest, setEditedManifest] = useState<ArticleManifest | null>(null);
   const [baseManifest, setBaseManifest] = useState<ArticleManifest>(manifest);
@@ -164,14 +168,32 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
             <span>&middot;</span>
             <span>{activeManifest.totalPanels} panels</span>
           </div>
+          {manifest.audioEnabled && (
+            <div className="mt-2">
+              <AudioToggle
+                audioMode={audioMode}
+                onToggle={() => setAudioMode((v) => !v)}
+              />
+            </div>
+          )}
         </div>
 
-        <MobilePanelView
-          panels={allPanels}
-          currentPanel={currentMobilePanel}
-          onPrev={goToPrevPanel}
-          onNext={goToNextPanel}
-        />
+        {manifest.audioEnabled && audioMode ? (
+          <AudioMobilePanelView
+            panels={allPanels}
+            currentPanel={currentMobilePanel}
+            onPrev={goToPrevPanel}
+            onNext={goToNextPanel}
+            voices={manifest.voiceData?.voices ?? []}
+          />
+        ) : (
+          <MobilePanelView
+            panels={allPanels}
+            currentPanel={currentMobilePanel}
+            onPrev={goToPrevPanel}
+            onNext={goToNextPanel}
+          />
+        )}
       </div>
     );
   }
@@ -188,16 +210,24 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
           >
             &larr; Back to articles
           </a>
-          <button
-            onClick={toggleEditMode}
-            className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
-              editMode
-                ? "bg-amber-400 text-gray-900 hover:bg-amber-300"
-                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-            }`}
-          >
-            {editMode ? "Exit Edit Mode" : "Edit Overlays"}
-          </button>
+          <div className="flex items-center gap-3">
+            {manifest.audioEnabled && (
+              <AudioToggle
+                audioMode={audioMode}
+                onToggle={() => setAudioMode((v) => !v)}
+              />
+            )}
+            <button
+              onClick={toggleEditMode}
+              className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
+                editMode
+                  ? "bg-amber-400 text-gray-900 hover:bg-amber-300"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              {editMode ? "Exit Edit Mode" : "Edit Overlays"}
+            </button>
+          </div>
         </div>
         <h1 className="text-3xl font-bold text-gray-100 mt-3">{activeManifest.title}</h1>
         <div className="flex items-center gap-4 mt-2 text-sm text-gray-400">
@@ -275,11 +305,18 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
 
       {/* Comic page */}
       <div className="px-4">
-        <ComicPage
-          page={activeManifest.pages[currentPage]}
-          editable={editMode}
-          onOverlayPositionChange={editMode ? handleOverlayPositionChange : undefined}
-        />
+        {manifest.audioEnabled && audioMode ? (
+          <AudioComicPage
+            page={activeManifest.pages[currentPage]}
+            voices={manifest.voiceData?.voices ?? []}
+          />
+        ) : (
+          <ComicPage
+            page={activeManifest.pages[currentPage]}
+            editable={editMode}
+            onOverlayPositionChange={editMode ? handleOverlayPositionChange : undefined}
+          />
+        )}
       </div>
 
       {/* Page controls bottom */}

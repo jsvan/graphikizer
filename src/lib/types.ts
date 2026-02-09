@@ -14,6 +14,10 @@ export interface TextOverlay {
   maxWidthPercent?: number;
   /** Speaker name for dialogue bubbles */
   speaker?: string;
+  /** Where the speaking character is positioned in the panel (for audio marble placement) */
+  characterPosition?: FocalPoint;
+  /** URL to TTS audio clip in blob storage */
+  audioUrl?: string;
 }
 
 // Panel layout sizes
@@ -79,6 +83,20 @@ export interface ComicScript {
   scriptUrl?: string;
 }
 
+// Voice profile for a character speaker
+export interface CharacterVoiceProfile {
+  speaker: string;
+  voiceId: string;
+  voiceDescription: string;
+  isNarrator: boolean;
+}
+
+// Voice data for an entire article
+export interface ArticleVoiceData {
+  voices: CharacterVoiceProfile[];
+  generatedAt: string;
+}
+
 // Article manifest stored in Vercel Blob
 export interface ArticleManifest {
   title: string;
@@ -92,7 +110,22 @@ export interface ArticleManifest {
   scriptUrl?: string;
   /** Bumped when the placement algorithm changes; triggers re-placement on load */
   placementVersion?: number;
+  /** True for articles generated with voice audio */
+  audioEnabled?: boolean;
+  /** Voice mapping data for audio-enabled articles */
+  voiceData?: ArticleVoiceData;
 }
+
+// Generation pipeline stages
+export type GenerationStage =
+  | "idle"
+  | "script"
+  | "voices"
+  | "panels"
+  | "saving"
+  | "done"
+  | "error"
+  | "partial";
 
 // Article summary for the index
 export interface ArticleIndexEntry {
@@ -153,5 +186,46 @@ export interface DeleteArticleRequest {
 
 export interface DeleteArticleResponse {
   success: boolean;
+  error?: string;
+}
+
+export interface GenerateVoiceRequest {
+  text: string;
+  speaker: string;
+  voiceId: string;
+  slug: string;
+  panelIndex: number;
+  overlayIndex: number;
+  password: string;
+}
+
+export interface GenerateVoiceResponse {
+  success: boolean;
+  audioUrl?: string;
+  error?: string;
+}
+
+export interface DescribeVoicesRequest {
+  speakers: string[];
+  articleTitle: string;
+  password: string;
+}
+
+export interface DescribeVoicesResponse {
+  success: boolean;
+  descriptions?: Record<string, string>;
+  error?: string;
+}
+
+export interface CreateVoiceRequest {
+  voiceDescription: string;
+  speakerLabel: string;
+  sampleText: string;
+  password: string;
+}
+
+export interface CreateVoiceResponse {
+  success: boolean;
+  voiceId?: string;
   error?: string;
 }

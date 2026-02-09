@@ -31,6 +31,7 @@ const OVERLAY_RULES = `TEXT OVERLAYS:
 - Positioning (x, y, anchor, maxWidthPercent) will be computed automatically by the layout engine — you may provide rough values but they will be overridden. Focus on text content, type, and speaker.
 - anchor: "top-left", "top-right", "bottom-left", "bottom-right", or "center"
 - x (0-100), y (0-100): approximate position hints
+- For DIALOGUE overlays, include "characterPosition": where the speaking character is located in the panel composition. Uses same values as focalPoint: "center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right". This is used for audio playback indicator placement.
 
 FOCAL POINT (each panel gets a "focalPoint" field):
 Where is the main visual subject in this panel's composition? The layout engine uses this to place text AWAY from the focal point, so faces and key imagery stay visible. VARY this across panels — not every scene is centered.
@@ -123,6 +124,16 @@ OUTPUT FORMAT (strict JSON):
           "y": 5,
           "anchor": "top-left",
           "maxWidthPercent": 40
+        },
+        {
+          "type": "dialogue",
+          "speaker": "Speaker Name",
+          "text": "What they say...",
+          "x": 55,
+          "y": 20,
+          "anchor": "top-right",
+          "maxWidthPercent": 40,
+          "characterPosition": "left"
         }
       ]
     }
@@ -191,7 +202,8 @@ OUTPUT FORMAT (strict JSON):
           "x": 55,
           "y": 20,
           "anchor": "top-right",
-          "maxWidthPercent": 40
+          "maxWidthPercent": 40,
+          "characterPosition": "left"
         }
       ]
     }

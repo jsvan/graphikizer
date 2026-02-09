@@ -137,6 +137,24 @@ export async function saveScript(slug: string, rawJson: string): Promise<string>
   return blob.url;
 }
 
+export async function uploadAudioClip(
+  audioBuffer: Buffer,
+  slug: string,
+  panelIndex: number,
+  overlayIndex: number
+): Promise<string> {
+  const pathname = `articles/${slug}/audio/panel-${panelIndex}-overlay-${overlayIndex}.mp3`;
+
+  const blob = await put(pathname, audioBuffer, {
+    access: "public",
+    contentType: "audio/mpeg",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+
+  return blob.url;
+}
+
 export async function getScriptUrl(slug: string): Promise<string | null> {
   try {
     const { blobs } = await list({ prefix: `articles/${slug}/script.json` });

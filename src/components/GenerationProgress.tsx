@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import type { GenerationStage } from "@/lib/types";
 
 interface GenerationProgressProps {
-  stage: "idle" | "script" | "panels" | "saving" | "done" | "error";
+  stage: GenerationStage;
   currentPanel: number;
   totalPanels: number;
   errorMessage?: string;
   scriptPreview?: object | null;
   latestImageUrl?: string;
   scriptChunkProgress?: string;
+  currentVoice?: number;
+  totalVoices?: number;
+  voiceSubStage?: "describing" | "creating" | "speaking";
 }
 
 export default function GenerationProgress({
@@ -20,10 +24,13 @@ export default function GenerationProgress({
   scriptPreview,
   latestImageUrl,
   scriptChunkProgress,
+  currentVoice = 0,
+  totalVoices = 0,
+  voiceSubStage,
 }: GenerationProgressProps) {
   const [scriptExpanded, setScriptExpanded] = useState(false);
 
-  if (stage === "idle") return null;
+  if (stage === "idle" || stage === "partial") return null;
 
   const panelProgress = totalPanels > 0 ? (currentPanel / totalPanels) * 100 : 0;
 
@@ -59,6 +66,65 @@ export default function GenerationProgress({
             </div>
             <p className="text-gray-500 text-xs mt-2">
               Each panel takes ~10-15 seconds. Generating 5 panels at a time.
+            </p>
+          </div>
+        )}
+
+        {stage === "voices" && voiceSubStage === "describing" && (
+          <div className="text-center">
+            <div className="animate-pulse text-amber-400 text-lg font-semibold mb-2">
+              Describing Voices...
+            </div>
+            <p className="text-gray-400 text-sm">
+              Analyzing characters and generating voice descriptions.
+            </p>
+          </div>
+        )}
+
+        {stage === "voices" && voiceSubStage === "creating" && (
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-amber-400 font-semibold">
+                Creating Voice Profiles
+              </span>
+              <span className="text-gray-400 text-sm font-mono">
+                {currentVoice} / {totalVoices}
+              </span>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-amber-400 h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${totalVoices > 0 ? (currentVoice / totalVoices) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-gray-500 text-xs mt-2">
+              Designing custom voices with ElevenLabs Voice Design.
+            </p>
+          </div>
+        )}
+
+        {stage === "voices" && voiceSubStage === "speaking" && (
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-amber-400 font-semibold">
+                Generating Speech
+              </span>
+              <span className="text-gray-400 text-sm font-mono">
+                {currentVoice} / {totalVoices}
+              </span>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-amber-400 h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${totalVoices > 0 ? (currentVoice / totalVoices) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-gray-500 text-xs mt-2">
+              Converting dialogue to speech with ElevenLabs. 5 at a time.
             </p>
           </div>
         )}
