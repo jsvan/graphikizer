@@ -75,6 +75,8 @@ export interface ArticleManifest {
   pages: ComicPage[];
   /** URL to the raw AI-generated script JSON in blob storage */
   scriptUrl?: string;
+  /** Bumped when the placement algorithm changes; triggers re-placement on load */
+  placementVersion?: number;
 }
 
 // Article summary for the index

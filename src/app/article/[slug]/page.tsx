@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
-import { getManifest } from "@/lib/blob";
+import { getManifest, saveManifest } from "@/lib/blob";
+import { placeOverlays } from "@/lib/bubblePlacement";
 import ComicReader from "@/components/ComicReader";
+
+/** Current placement algorithm version. Bump to re-run on all articles. */
+const PLACEMENT_VERSION = 1;
 
 interface ArticlePageProps {
   params: Promise<{ slug: string }>;
@@ -12,6 +16,18 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
 
   if (!manifest) {
     notFound();
+  }
+
+  // Migrate overlay placement if needed
+  if ((manifest.placementVersion ?? 0) < PLACEMENT_VERSION) {
+    for (const page of manifest.pages) {
+      for (const panel of page.panels) {
+        placeOverlays(panel.overlays, panel.layout);
+      }
+    }
+    manifest.placementVersion = PLACEMENT_VERSION;
+    // Fire-and-forget save — don't block rendering
+    saveManifest(manifest).catch(() => {});
   }
 
   return <ComicReader manifest={manifest} />;

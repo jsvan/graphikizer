@@ -321,6 +321,7 @@ export default function UploadForm() {
         totalPanels: completedScript.totalPanels,
         pages: completedScript.pages,
         scriptUrl: completedScript.scriptUrl,
+        placementVersion: 1,
       };
 
       const saveRes = await fetch("/api/save-article", {
