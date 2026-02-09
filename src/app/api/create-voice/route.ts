@@ -32,11 +32,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure sample text is 100-1000 chars for Voice Design
-    const trimmedSample = sampleText.slice(0, 1000);
+    // Cap at exactly 100 chars (API minimum) to minimize credit usage —
+    // Voice Design synthesizes audio from this text, costing 1 credit/char
+    const trimmedSample = sampleText.slice(0, 100);
     const paddedSample =
       trimmedSample.length < 100
-        ? trimmedSample + " ".repeat(100 - trimmedSample.length)
+        ? (trimmedSample + " This is a sample of how I speak naturally.").slice(0, 100)
         : trimmedSample;
 
     // Step 1: Design a voice from the description

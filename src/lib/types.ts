@@ -114,6 +114,8 @@ export interface ArticleManifest {
   audioEnabled?: boolean;
   /** Voice mapping data for audio-enabled articles */
   voiceData?: ArticleVoiceData;
+  /** Generation status: generating (in progress), partial (has failures), complete (all done) */
+  status?: "generating" | "partial" | "complete";
 }
 
 // Generation pipeline stages
@@ -137,6 +139,7 @@ export interface ArticleIndexEntry {
   totalPanels: number;
   pageCount: number;
   thumbnailUrl?: string;
+  status?: "generating" | "partial" | "complete";
 }
 
 // API request/response types

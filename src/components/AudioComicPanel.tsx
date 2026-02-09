@@ -79,6 +79,7 @@ export default function AudioComicPanel({
                   isPlaying={isActive && voiceState === "playing"}
                   isLoading={isActive && voiceState === "loading"}
                   isNarrator={isNarrator}
+                  speaker={overlay.speaker}
                 />
                 {/* Dialogue — shown only when active */}
                 {isActive && (

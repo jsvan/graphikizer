@@ -118,6 +118,7 @@ export default function AudioMobilePanelView({
               isPlaying={isActive && voiceState === "playing"}
               isLoading={isActive && voiceState === "loading"}
               isNarrator={isNarrator}
+              speaker={overlay.speaker}
             />
           );
         })}

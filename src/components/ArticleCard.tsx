@@ -15,8 +15,18 @@ export default function ArticleCard({ article, onDelete }: ArticleCardProps) {
     year: "numeric",
   });
 
+  const isComplete = !article.status || article.status === "complete";
+  const isGenerating = article.status === "generating";
+  const isPartial = article.status === "partial";
+
   return (
-    <div className="group relative bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-amber-400/50 transition-all hover:shadow-lg hover:shadow-amber-400/5">
+    <div className={`group relative bg-gray-900 rounded-xl overflow-hidden border transition-all hover:shadow-lg ${
+      isComplete
+        ? "border-gray-800 hover:border-amber-400/50 hover:shadow-amber-400/5"
+        : isGenerating
+          ? "border-amber-400/30"
+          : "border-red-400/30"
+    }`}>
       {onDelete && (
         <button
           onClick={(e) => {
@@ -34,7 +44,7 @@ export default function ArticleCard({ article, onDelete }: ArticleCardProps) {
       )}
       <Link href={`/article/${article.slug}`}>
         {/* Thumbnail */}
-        <div className="aspect-[4/3] bg-gray-800 overflow-hidden">
+        <div className={`aspect-[4/3] bg-gray-800 overflow-hidden relative ${!isComplete ? "opacity-60" : ""}`}>
           {article.thumbnailUrl ? (
             <img
               src={article.thumbnailUrl}
@@ -43,7 +53,17 @@ export default function ArticleCard({ article, onDelete }: ArticleCardProps) {
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-600">
-              No preview
+              {isGenerating ? "Generating..." : "No preview"}
+            </div>
+          )}
+          {/* Status badge */}
+          {!isComplete && (
+            <div className={`absolute top-2 left-2 px-2 py-1 rounded text-xs font-semibold ${
+              isGenerating
+                ? "bg-amber-400/90 text-gray-900"
+                : "bg-red-500/90 text-white"
+            }`}>
+              {isGenerating ? "In Progress" : "Incomplete"}
             </div>
           )}
         </div>

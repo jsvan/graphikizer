@@ -351,21 +351,12 @@ export default function UploadForm() {
     );
     const missingAudio = countMissingAudio(script);
 
-    if (failedPanels.length > 0 || failedSpeakers.length > 0 || missingAudio > 0) {
-      setFailedItems({
-        panels: failedPanels,
-        speakers: failedSpeakers,
-        ttsCount: missingAudio,
-      });
-      setStage("partial");
-      return;
-    }
-
-    // All items succeeded — save
     const voiceProfiles = buildVoiceProfiles(voiceMapRef.current);
     const audioEnabled = speakerListRef.current.length > 0;
+    const hasFailures = failedPanels.length > 0 || failedSpeakers.length > 0 || missingAudio > 0;
 
-    setStage("saving");
+    // Always save current state (even partial) so the article stays up to date
+    setStage(hasFailures ? "saving" : "saving");
 
     const manifest: ArticleManifest = {
       title: script.title,
@@ -377,6 +368,7 @@ export default function UploadForm() {
       pages: script.pages,
       scriptUrl: script.scriptUrl,
       placementVersion: 4,
+      status: hasFailures ? "partial" : "complete",
       ...(audioEnabled && {
         audioEnabled: true,
         voiceData: {
@@ -398,11 +390,19 @@ export default function UploadForm() {
       throw new Error(saveData.error || "Save failed");
     }
 
-    setStage("done");
-
-    setTimeout(() => {
-      router.push(`/article/${script.slug}`);
-    }, 1500);
+    if (hasFailures) {
+      setFailedItems({
+        panels: failedPanels,
+        speakers: failedSpeakers,
+        ttsCount: missingAudio,
+      });
+      setStage("partial");
+    } else {
+      setStage("done");
+      setTimeout(() => {
+        router.push(`/article/${script.slug}`);
+      }, 1500);
+    }
   }
 
   async function handleRetry() {
@@ -630,6 +630,25 @@ export default function UploadForm() {
 
       setScriptPreview(script);
       scriptRef.current = script;
+
+      // Save early manifest so article appears on main page immediately
+      const earlyManifest: ArticleManifest = {
+        title: script.title,
+        slug: script.slug,
+        sourceUrl: script.sourceUrl,
+        artStyle: script.artStyle,
+        createdAt: new Date().toISOString(),
+        totalPanels: script.totalPanels,
+        pages: script.pages,
+        scriptUrl: script.scriptUrl,
+        placementVersion: 4,
+        status: "generating",
+      };
+      await fetch("/api/save-article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manifest: earlyManifest, password }),
+      });
 
       // Step 2: Voice pipeline — describe → create → TTS
       const checkRes = await fetch("/api/check-voice", {

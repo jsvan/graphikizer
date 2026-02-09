@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
       totalPanels: manifest.totalPanels,
       pageCount: manifest.pages.length,
       thumbnailUrl,
+      status: manifest.status || "complete",
     };
 
     await updateArticleIndex(entry);

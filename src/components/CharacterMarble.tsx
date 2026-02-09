@@ -8,6 +8,7 @@ interface CharacterMarbleProps {
   isPlaying: boolean;
   isLoading: boolean;
   isNarrator?: boolean;
+  speaker?: string;
 }
 
 /** Map FocalPoint to CSS percentage positions within the panel */
@@ -50,6 +51,7 @@ export default function CharacterMarble({
   isPlaying,
   isLoading,
   isNarrator,
+  speaker,
 }: CharacterMarbleProps) {
   const posStyle = getPositionStyle(position);
 
@@ -65,7 +67,8 @@ export default function CharacterMarble({
       className={`group flex items-center justify-center ${
         isNarrator ? "w-10 h-14" : "w-6 h-6"
       }`}
-      aria-label={isPlaying ? "Stop audio" : "Play dialogue"}
+      title={speaker || (isNarrator ? "Narrator" : "Play audio")}
+      aria-label={isPlaying ? "Stop audio" : `Play ${speaker || "dialogue"}`}
     >
       {/* Narrator silhouette behind marble */}
       {isNarrator && (
