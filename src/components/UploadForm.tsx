@@ -710,7 +710,68 @@ export default function UploadForm() {
       console.warn("[Voices] Pre-cleanup failed (non-fatal):", err);
     }
 
-    const speakerList = extractSpeakers(script);
+    let speakerList = extractSpeakers(script);
+
+    // Consolidate speakers if too many (AI merge pass)
+    if (speakerList.length > 10) {
+      console.log(`[Speakers] ${speakerList.length} speakers — consolidating...`);
+      setStage("voices");
+      setVoiceSubStage("describing");
+
+      try {
+        const consRes = await fetch("/api/consolidate-speakers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            speakers: speakerList,
+            articleTitle,
+            password,
+          }),
+        });
+
+        const consText = await consRes.text();
+        const consLines = consText.split("\n").filter(Boolean);
+        const consResult = consLines.length > 0
+          ? JSON.parse(consLines[consLines.length - 1])
+          : { success: false };
+
+        if (consResult.success && consResult.mapping) {
+          const mapping: Record<string, string> = consResult.mapping;
+
+          // Rewrite speaker names in all overlays
+          for (const page of script.pages) {
+            for (const panel of page.panels) {
+              for (const overlay of panel.overlays) {
+                if (overlay.speaker && mapping[overlay.speaker]) {
+                  overlay.speaker = mapping[overlay.speaker];
+                }
+              }
+            }
+          }
+
+          // Convert dialogue overlays with speaker="Narrator" to narration type
+          for (const page of script.pages) {
+            for (const panel of page.panels) {
+              for (const overlay of panel.overlays) {
+                if (overlay.type === "dialogue" && overlay.speaker === "Narrator") {
+                  overlay.type = "narration";
+                  delete overlay.speaker;
+                }
+              }
+            }
+          }
+
+          // Re-extract the now-consolidated speaker list
+          speakerList = extractSpeakers(script);
+          console.log(`[Speakers] Consolidated to ${speakerList.length} speakers: ${speakerList.join(", ")}`);
+        } else {
+          console.warn("[Speakers] Consolidation failed, proceeding with original list");
+        }
+      } catch (err) {
+        console.warn("[Speakers] Consolidation error (non-fatal):", err);
+      }
+    }
+
     speakerListRef.current = speakerList;
 
     let skipAudio = false;
