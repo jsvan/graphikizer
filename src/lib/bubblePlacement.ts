@@ -33,6 +33,9 @@ const DIALOGUE_SLOTS = ["TL", "TR", "ML", "MR", "BL", "BR"];
 const NARRATION_SLOTS = ["TL", "BL", "BR", "TR", "TC", "BC"];
 const CAPTION_SLOTS = ["TC", "BC", "TL", "BL", "TR", "BR"];
 
+/** Padding added to each side of estimated bounding boxes (in %) */
+const BBOX_PADDING = 4;
+
 function slotOrder(type: OverlayType): string[] {
   if (type === "dialogue") return DIALOGUE_SLOTS;
   if (type === "narration") return NARRATION_SLOTS;
@@ -77,7 +80,7 @@ function computeWidth(
 
 /**
  * Estimate a bounding box (in % coordinates) for an overlay at a given slot.
- * This is approximate — used only for collision nudging.
+ * Includes padding on all sides so near-misses are treated as overlaps.
  */
 interface BBox {
   left: number;
@@ -91,24 +94,17 @@ function estimateBBox(
   widthPct: number,
   text: string
 ): BBox {
-  // Estimate height based on characters and width
-  // Rough: each line ~15 chars at width 30%, with each line ~5% of panel height
-  const charsPerLine = Math.max(10, Math.round((widthPct / 100) * 40));
+  // Estimate height: ~12 chars per line at 30% width, each line ~6% of panel height
+  const charsPerLine = Math.max(8, Math.round((widthPct / 100) * 35));
   const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
-  const heightPct = Math.min(30, lines * 5 + 4);
+  const heightPct = Math.min(35, lines * 6 + 5);
 
   let left: number, top: number;
 
   // Horizontal positioning based on anchor
-  if (
-    slot.anchor === "top-left" ||
-    slot.anchor === "bottom-left"
-  ) {
+  if (slot.anchor === "top-left" || slot.anchor === "bottom-left") {
     left = slot.x;
-  } else if (
-    slot.anchor === "top-right" ||
-    slot.anchor === "bottom-right"
-  ) {
+  } else if (slot.anchor === "top-right" || slot.anchor === "bottom-right") {
     left = slot.x - widthPct;
   } else {
     // center
@@ -127,11 +123,12 @@ function estimateBBox(
     top = slot.y - heightPct;
   }
 
+  // Add padding on all sides
   return {
-    left,
-    top,
-    right: left + widthPct,
-    bottom: top + heightPct,
+    left: left - BBOX_PADDING,
+    top: top - BBOX_PADDING,
+    right: left + widthPct + BBOX_PADDING,
+    bottom: top + heightPct + BBOX_PADDING,
   };
 }
 
@@ -145,9 +142,20 @@ function bboxOverlap(a: BBox, b: BBox): boolean {
 }
 
 /**
+ * Check if a candidate bbox overlaps any already-placed bbox.
+ */
+function overlapsAny(candidate: BBox, placed: BBox[]): boolean {
+  for (const existing of placed) {
+    if (bboxOverlap(candidate, existing)) return true;
+  }
+  return false;
+}
+
+/**
  * Place overlays for a single panel.
- * Assigns each overlay to a perimeter slot, computes fixed width,
- * and nudges overlapping boxes.
+ * Assigns each overlay to a perimeter slot, checking for bbox overlap
+ * during assignment (not just after). Computes fixed width and does
+ * final collision resolution as a safety net.
  *
  * Mutates overlay x, y, anchor, maxWidthPercent in place and returns them.
  */
@@ -157,7 +165,7 @@ export function placeOverlays(
 ): TextOverlay[] {
   if (overlays.length === 0) return overlays;
 
-  const used = new Set<string>();
+  const placedBoxes: BBox[] = [];
   const assignments: { overlay: TextOverlay; slotId: string; bbox: BBox }[] =
     [];
 
@@ -171,61 +179,119 @@ export function placeOverlays(
     (a, b) => typePriority[a.type] - typePriority[b.type]
   );
 
+  const used = new Set<string>();
+
   for (const overlay of sorted) {
     const preferred = slotOrder(overlay.type);
     const width = computeWidth(overlay.text, overlay.type, overlays.length);
 
-    let assignedSlotId: string | null = null;
+    let bestSlotId: string | null = null;
+    let bestBBox: BBox | null = null;
 
-    // Find first unused preferred slot
+    // Find first preferred slot where bbox doesn't overlap anything placed
     for (const slotId of preferred) {
-      if (!used.has(slotId)) {
-        assignedSlotId = slotId;
+      if (used.has(slotId)) continue;
+      const bbox = estimateBBox(SLOTS[slotId], width, overlay.text);
+      if (!overlapsAny(bbox, placedBoxes)) {
+        bestSlotId = slotId;
+        bestBBox = bbox;
         break;
       }
     }
 
-    // Fallback: any unused slot
-    if (!assignedSlotId) {
+    // Fallback: any unused slot without overlap
+    if (!bestSlotId) {
       for (const slotId of Object.keys(SLOTS)) {
-        if (!used.has(slotId)) {
-          assignedSlotId = slotId;
+        if (used.has(slotId)) continue;
+        const bbox = estimateBBox(SLOTS[slotId], width, overlay.text);
+        if (!overlapsAny(bbox, placedBoxes)) {
+          bestSlotId = slotId;
+          bestBBox = bbox;
           break;
         }
       }
     }
 
-    // Last resort: reuse TL (shouldn't happen with <=8 overlays)
-    if (!assignedSlotId) {
-      assignedSlotId = "TL";
+    // Still nothing? Take first unused slot even if it overlaps
+    // (collision resolution below will try to fix it)
+    if (!bestSlotId) {
+      for (const slotId of preferred) {
+        if (!used.has(slotId)) {
+          bestSlotId = slotId;
+          bestBBox = estimateBBox(SLOTS[slotId], width, overlay.text);
+          break;
+        }
+      }
     }
 
-    used.add(assignedSlotId);
-    const slot = SLOTS[assignedSlotId];
-    const bbox = estimateBBox(slot, width, overlay.text);
+    // Last resort: any unused slot
+    if (!bestSlotId) {
+      for (const slotId of Object.keys(SLOTS)) {
+        if (!used.has(slotId)) {
+          bestSlotId = slotId;
+          bestBBox = estimateBBox(SLOTS[slotId], width, overlay.text);
+          break;
+        }
+      }
+    }
+
+    // Absolute last resort (>8 overlays): reuse TL
+    if (!bestSlotId) {
+      bestSlotId = "TL";
+      bestBBox = estimateBBox(SLOTS.TL, width, overlay.text);
+    }
+
+    used.add(bestSlotId);
+    const slot = SLOTS[bestSlotId];
 
     overlay.x = slot.x;
     overlay.y = slot.y;
     overlay.anchor = slot.anchor;
     overlay.maxWidthPercent = width;
 
-    assignments.push({ overlay, slotId: assignedSlotId, bbox });
+    placedBoxes.push(bestBBox!);
+    assignments.push({ overlay, slotId: bestSlotId, bbox: bestBBox! });
   }
 
-  // Collision resolution: nudge overlapping boxes iteratively
-  for (let pass = 0; pass < 3; pass++) {
+  // Safety-net collision resolution: nudge any remaining overlaps
+  for (let pass = 0; pass < 5; pass++) {
+    let anyNudged = false;
     for (let i = 0; i < assignments.length; i++) {
       for (let j = i + 1; j < assignments.length; j++) {
-        if (bboxOverlap(assignments[i].bbox, assignments[j].bbox)) {
-          // Nudge the later one down by the overlap amount + a small margin
-          const overlapY =
-            assignments[i].bbox.bottom - assignments[j].bbox.top + 3;
-          assignments[j].overlay.y += overlapY;
-          assignments[j].bbox.top += overlapY;
-          assignments[j].bbox.bottom += overlapY;
+        if (!bboxOverlap(assignments[i].bbox, assignments[j].bbox)) continue;
+
+        // Determine whether to nudge horizontally or vertically
+        // based on which overlap dimension is smaller (less displacement)
+        const overlapX = Math.min(
+          assignments[i].bbox.right - assignments[j].bbox.left,
+          assignments[j].bbox.right - assignments[i].bbox.left
+        );
+        const overlapY = Math.min(
+          assignments[i].bbox.bottom - assignments[j].bbox.top,
+          assignments[j].bbox.bottom - assignments[i].bbox.top
+        );
+
+        if (overlapX < overlapY) {
+          // Nudge horizontally — push j away from i
+          const nudge = overlapX + 3;
+          const dir =
+            assignments[j].bbox.left > assignments[i].bbox.left ? 1 : -1;
+          assignments[j].overlay.x += nudge * dir;
+          assignments[j].bbox.left += nudge * dir;
+          assignments[j].bbox.right += nudge * dir;
+        } else {
+          // Nudge vertically — push j down (or up if j is above i)
+          const nudge = overlapY + 3;
+          const dir =
+            assignments[j].bbox.top > assignments[i].bbox.top ? 1 : -1;
+          assignments[j].overlay.y += nudge * dir;
+          assignments[j].bbox.top += nudge * dir;
+          assignments[j].bbox.bottom += nudge * dir;
         }
+        anyNudged = true;
       }
     }
+    if (!anyNudged) break;
   }
 
   return overlays;
