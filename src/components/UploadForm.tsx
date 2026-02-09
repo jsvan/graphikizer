@@ -11,6 +11,7 @@ import type {
   SaveArticleResponse,
   ArticleManifest,
 } from "@/lib/types";
+import { placeOverlays } from "@/lib/bubblePlacement";
 import GenerationProgress from "./GenerationProgress";
 
 const CONCURRENCY_LIMIT = 5;
@@ -248,6 +249,11 @@ export default function UploadForm() {
           }
           artStyle = parsed.artStyle;
           console.log(`[Script] Art style: ${artStyle.name}`);
+        }
+
+        // Run placement algorithm on each panel's overlays
+        for (const panel of parsed.panels) {
+          panel.overlays = placeOverlays(panel.overlays, panel.layout);
         }
 
         allPanels.push(...parsed.panels);

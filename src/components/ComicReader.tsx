@@ -1,16 +1,36 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import type { ArticleManifest, PanelMargins } from "@/lib/types";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import type { ArticleManifest, ComicPanel } from "@/lib/types";
 import ComicPage from "./ComicPage";
 import PageControls from "./PageControls";
+import MobilePanelView from "./MobilePanelView";
+
+const MOBILE_BREAKPOINT = 640;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    function check() {
+      setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT);
+    }
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  return isMobile;
+}
 
 interface ComicReaderProps {
   manifest: ArticleManifest;
 }
 
 export default function ComicReader({ manifest }: ComicReaderProps) {
+  const isMobile = useIsMobile();
   const [currentPage, setCurrentPage] = useState(0);
+  const [currentMobilePanel, setCurrentMobilePanel] = useState(0);
   const [editMode, setEditMode] = useState(false);
   const [editedManifest, setEditedManifest] = useState<ArticleManifest | null>(null);
   const [baseManifest, setBaseManifest] = useState<ArticleManifest>(manifest);
@@ -23,6 +43,12 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
 
   const activeManifest = editedManifest ?? baseManifest;
 
+  // Flatten all panels for mobile one-at-a-time view
+  const allPanels: ComicPanel[] = useMemo(
+    () => activeManifest.pages.flatMap((p) => p.panels),
+    [activeManifest]
+  );
+
   const goToPrev = useCallback(() => {
     setCurrentPage((p) => Math.max(0, p - 1));
   }, []);
@@ -31,30 +57,37 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
     setCurrentPage((p) => Math.min(totalPages - 1, p + 1));
   }, [totalPages]);
 
+  const goToPrevPanel = useCallback(() => {
+    setCurrentMobilePanel((p) => Math.max(0, p - 1));
+  }, []);
+
+  const goToNextPanel = useCallback(() => {
+    setCurrentMobilePanel((p) => Math.min(allPanels.length - 1, p + 1));
+  }, [allPanels.length]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (isMobile) return;
       if (e.key === "ArrowLeft") goToPrev();
       if (e.key === "ArrowRight") goToNext();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goToPrev, goToNext]);
+  }, [goToPrev, goToNext, isMobile]);
 
-  // Scroll to top on page change
+  // Scroll to top on page/panel change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [currentPage]);
+  }, [currentPage, currentMobilePanel]);
 
   const toggleEditMode = useCallback(() => {
     setEditMode((prev) => {
       if (!prev) {
-        // Entering edit mode — deep copy from baseManifest
         setEditedManifest(JSON.parse(JSON.stringify(baseManifest)));
         setHasChanges(false);
         setSaveError("");
         setSaveSuccess(false);
       } else {
-        // Exiting edit mode — discard unsaved changes, fall back to baseManifest
         setEditedManifest(null);
         setHasChanges(false);
         setSaveError("");
@@ -84,42 +117,6 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
     [currentPage]
   );
 
-  const handleOverlayResize = useCallback(
-    (panelIndex: number, overlayIndex: number, maxWidthPercent: number) => {
-      setEditedManifest((prev) => {
-        if (!prev) return prev;
-        const updated = JSON.parse(JSON.stringify(prev)) as ArticleManifest;
-        const page = updated.pages[currentPage];
-        const panel = page.panels.find((p) => p.panelIndex === panelIndex);
-        if (panel && panel.overlays[overlayIndex]) {
-          panel.overlays[overlayIndex].maxWidthPercent = maxWidthPercent;
-        }
-        return updated;
-      });
-      setHasChanges(true);
-      setSaveSuccess(false);
-    },
-    [currentPage]
-  );
-
-  const handlePanelMarginChange = useCallback(
-    (panelIndex: number, margins: PanelMargins) => {
-      setEditedManifest((prev) => {
-        if (!prev) return prev;
-        const updated = JSON.parse(JSON.stringify(prev)) as ArticleManifest;
-        const page = updated.pages[currentPage];
-        const panel = page.panels.find((p) => p.panelIndex === panelIndex);
-        if (panel) {
-          panel.panelMargins = margins;
-        }
-        return updated;
-      });
-      setHasChanges(true);
-      setSaveSuccess(false);
-    },
-    [currentPage]
-  );
-
   const handleSave = useCallback(async () => {
     if (!editedManifest || !password) return;
     setSaving(true);
@@ -138,7 +135,6 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
       } else {
         setSaveSuccess(true);
         setHasChanges(false);
-        // Update baseManifest so exiting edit mode preserves saved positions
         setBaseManifest(JSON.parse(JSON.stringify(editedManifest)));
       }
     } catch {
@@ -148,6 +144,39 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
     }
   }, [editedManifest, password]);
 
+  // --- Mobile layout: one panel at a time ---
+  if (isMobile) {
+    return (
+      <div className="min-h-screen bg-gray-950">
+        {/* Mobile header */}
+        <div className="px-4 pt-6 pb-3">
+          <a
+            href="/"
+            className="text-amber-400 hover:text-amber-300 text-sm font-medium transition-colors"
+          >
+            &larr; Back
+          </a>
+          <h1 className="text-xl font-bold text-gray-100 mt-2 leading-tight">
+            {activeManifest.title}
+          </h1>
+          <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+            <span className="text-amber-400/80">{activeManifest.artStyle.name}</span>
+            <span>&middot;</span>
+            <span>{activeManifest.totalPanels} panels</span>
+          </div>
+        </div>
+
+        <MobilePanelView
+          panels={allPanels}
+          currentPanel={currentMobilePanel}
+          onPrev={goToPrevPanel}
+          onNext={goToNextPanel}
+        />
+      </div>
+    );
+  }
+
+  // --- Desktop layout: grid pages ---
   return (
     <div className="min-h-screen bg-gray-950">
       {/* Header */}
@@ -250,8 +279,6 @@ export default function ComicReader({ manifest }: ComicReaderProps) {
           page={activeManifest.pages[currentPage]}
           editable={editMode}
           onOverlayPositionChange={editMode ? handleOverlayPositionChange : undefined}
-          onOverlayResize={editMode ? handleOverlayResize : undefined}
-          onPanelMarginChange={editMode ? handlePanelMarginChange : undefined}
         />
       </div>
 

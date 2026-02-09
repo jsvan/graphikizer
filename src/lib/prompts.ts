@@ -26,12 +26,11 @@ const PANEL_LAYOUT_RULES = `PANEL LAYOUT (each panel gets a "layout" field):
 - "tall" (2-col, 2-row, ~10%) — vertical, tall figures, buildings, dramatic reveals
 - "large" (3-col, 2-row, ~10%) — big moments, splash panels`;
 
-const OVERLAY_RULES = `TEXT OVERLAY POSITIONING:
-- x (0-100): horizontal position, left to right
-- y (0-100): vertical position, top to bottom
+const OVERLAY_RULES = `TEXT OVERLAYS:
+- Types: "narration" (analytical content), "dialogue" (quotes, needs "speaker" field), "caption" (labels/dates/locations)
+- Positioning (x, y, anchor, maxWidthPercent) will be computed automatically by the layout engine — you may provide rough values but they will be overridden. Focus on text content, type, and speaker.
 - anchor: "top-left", "top-right", "bottom-left", "bottom-right", or "center"
-- maxWidthPercent: width of text box as % of panel (default 40, use 35-50 for narration)
-- Types: "narration" (analytical content, in corners), "dialogue" (quotes, needs "speaker" field, near speaker), "caption" (labels/dates/locations, at edges)`;
+- x (0-100), y (0-100): approximate position hints`;
 
 const ARTWORK_RULES = `ARTWORK DESCRIPTIONS (artworkPrompt field):
 The artworkPrompt for each panel will be sent directly to an AI image generation model (FLUX) as its prompt. Write it accordingly — this is a prompt for an image AI, not prose for a human reader.

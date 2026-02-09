@@ -5,18 +5,62 @@ import type { TextOverlay as TextOverlayType } from "@/lib/types";
 
 interface TextOverlayProps {
   overlay: TextOverlayType;
+  overlayIndex?: number;
   editable?: boolean;
   onPositionChange?: (x: number, y: number) => void;
-  onResize?: (maxWidthPercent: number) => void;
   /** Render as static block below the image instead of absolute overlay */
   renderBelow?: boolean;
 }
 
+/**
+ * Compute a fixed pixel width for the bubble based on text length and type.
+ */
+function computeFixedWidth(text: string, type: string): number {
+  const len = text.length;
+  if (type === "dialogue") {
+    if (len < 40) return 130;
+    if (len < 80) return 180;
+    return 240;
+  }
+  if (type === "narration") {
+    if (len < 40) return 160;
+    if (len < 80) return 220;
+    return 280;
+  }
+  // caption
+  if (len < 30) return 100;
+  if (len < 60) return 150;
+  return 200;
+}
+
+/**
+ * Check if el overlaps any sibling .bubble-overlay elements
+ * (excluding the element itself, identified by data-overlay-index).
+ */
+function overlapsAnySibling(el: HTMLElement): boolean {
+  const parent = el.parentElement;
+  if (!parent) return false;
+  const myRect = el.getBoundingClientRect();
+  const siblings = parent.querySelectorAll(".bubble-overlay");
+  for (const sib of siblings) {
+    if (sib === el) continue;
+    const sibRect = sib.getBoundingClientRect();
+    const overlapping = !(
+      myRect.right <= sibRect.left ||
+      sibRect.right <= myRect.left ||
+      myRect.bottom <= sibRect.top ||
+      sibRect.bottom <= myRect.top
+    );
+    if (overlapping) return true;
+  }
+  return false;
+}
+
 export default function TextOverlay({
   overlay,
+  overlayIndex,
   editable,
   onPositionChange,
-  onResize,
   renderBelow,
 }: TextOverlayProps) {
   const { type, text, x, y, anchor, maxWidthPercent = 40, speaker } = overlay;
@@ -55,13 +99,15 @@ export default function TextOverlay({
 
       const finalLeft = drag.origLeft + (e.clientX - drag.startX);
       const finalTop = drag.origTop + (e.clientY - drag.startY);
-      const xPct = (finalLeft / drag.parentWidth) * 100;
-      const yPct = (finalTop / drag.parentHeight) * 100;
 
-      // Restore styles
+      // Temporarily apply final position so we can check overlap
+      el.style.left = `${finalLeft}px`;
+      el.style.top = `${finalTop}px`;
+
+      const hasOverlap = overlapsAnySibling(el);
+
+      // Restore styles back to CSS-positioned mode
       el.style.width = "";
-      el.style.height = "";
-      el.style.maxWidth = "";
       el.style.left = "";
       el.style.top = "";
       el.style.right = "";
@@ -69,6 +115,7 @@ export default function TextOverlay({
       el.style.transform = "";
       el.style.cursor = "grab";
       el.style.zIndex = "10";
+      el.style.maxWidth = "";
 
       // Restore panel z-index
       if (drag.panelEl) drag.panelEl.style.zIndex = "";
@@ -76,6 +123,12 @@ export default function TextOverlay({
       dragRef.current = null;
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+
+      // If overlapping a sibling bubble, snap back (don't update position)
+      if (hasOverlap) return;
+
+      const xPct = (finalLeft / drag.parentWidth) * 100;
+      const yPct = (finalTop / drag.parentHeight) * 100;
 
       onPositionChange?.(
         Math.round(xPct * 100) / 100,
@@ -113,9 +166,8 @@ export default function TextOverlay({
         panelEl,
       };
 
-      // Lock dimensions, switch to pixel positioning within parent
+      // Switch to pixel positioning, keeping same visual dimensions
       el.style.width = `${rect.width}px`;
-      el.style.height = `${rect.height}px`;
       el.style.maxWidth = "none";
       el.style.left = `${origLeft}px`;
       el.style.top = `${origTop}px`;
@@ -131,81 +183,13 @@ export default function TextOverlay({
     [editable, onMouseMove, onMouseUp]
   );
 
-  // --- Resize drag (right edge) ---
-  const resizeRef = useRef<{
-    startX: number;
-    origWidth: number;
-    parentWidth: number;
-  } | null>(null);
-
-  const onResizeMove = useCallback((e: MouseEvent) => {
-    const resize = resizeRef.current;
-    const el = elRef.current;
-    if (!resize || !el) return;
-    e.preventDefault();
-    const newWidth = Math.max(40, resize.origWidth + (e.clientX - resize.startX));
-    el.style.width = `${newWidth}px`;
-    el.style.maxWidth = "none";
-  }, []);
-
-  const onResizeUp = useCallback(
-    (e: MouseEvent) => {
-      const resize = resizeRef.current;
-      const el = elRef.current;
-      if (!resize || !el) {
-        resizeRef.current = null;
-        document.removeEventListener("mousemove", onResizeMove);
-        document.removeEventListener("mouseup", onResizeUp);
-        return;
-      }
-
-      const newWidth = Math.max(40, resize.origWidth + (e.clientX - resize.startX));
-      const newMaxWidthPct = Math.round((newWidth / resize.parentWidth) * 100 * 100) / 100;
-
-      // Restore styles
-      el.style.width = "";
-      el.style.maxWidth = "";
-
-      resizeRef.current = null;
-      document.removeEventListener("mousemove", onResizeMove);
-      document.removeEventListener("mouseup", onResizeUp);
-
-      onResize?.(Math.max(5, Math.min(100, newMaxWidthPct)));
-    },
-    [onResizeMove, onResize]
-  );
-
-  const onResizeMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const el = elRef.current;
-      if (!el || !el.parentElement) return;
-
-      const rect = el.getBoundingClientRect();
-      const parentRect = el.parentElement.getBoundingClientRect();
-
-      resizeRef.current = {
-        startX: e.clientX,
-        origWidth: rect.width,
-        parentWidth: parentRect.width,
-      };
-
-      document.addEventListener("mousemove", onResizeMove);
-      document.addEventListener("mouseup", onResizeUp);
-    },
-    [onResizeMove, onResizeUp]
-  );
-
   // Cleanup listeners on unmount
   useEffect(() => {
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
-      document.removeEventListener("mousemove", onResizeMove);
-      document.removeEventListener("mouseup", onResizeUp);
     };
-  }, [onMouseMove, onMouseUp, onResizeMove, onResizeUp]);
+  }, [onMouseMove, onMouseUp]);
 
   // --- Below-image rendering (static flow, no absolute positioning) ---
   if (renderBelow) {
@@ -223,11 +207,17 @@ export default function TextOverlay({
     );
   }
 
+  // --- Fixed width for the bubble ---
+  const fixedWidth = computeFixedWidth(text, type);
+
   // --- Absolute overlay rendering ---
   const positionStyle: React.CSSProperties = {
     position: "absolute",
+    width: fixedWidth,
     maxWidth: `${maxWidthPercent}%`,
     zIndex: 10,
+    overflowWrap: "break-word",
+    wordWrap: "break-word",
   };
 
   // Anchor-aware positioning (same for edit and non-edit)
@@ -259,25 +249,19 @@ export default function TextOverlay({
     ? " ring-2 ring-amber-400/50 ring-offset-1 ring-offset-transparent"
     : "";
 
-  // Resize handle (right edge)
-  const resizeHandle = editable ? (
-    <div
-      onMouseDown={onResizeMouseDown}
-      className="absolute top-0 -right-1 w-2 h-full cursor-ew-resize hover:bg-amber-400/30 transition-colors"
-    />
-  ) : null;
+  const bubbleClass = "bubble-overlay";
 
   // Narration box — cream parchment style
   if (type === "narration") {
     return (
       <div
         ref={elRef}
+        data-overlay-index={overlayIndex}
         style={positionStyle}
-        className={`bg-amber-50/95 border-2 border-gray-900 border-l-4 px-3 py-2 text-gray-900 text-sm italic leading-snug shadow-lg${editableRing}`}
+        className={`${bubbleClass} bg-amber-50/95 border-2 border-gray-900 border-l-4 px-3 py-2 text-gray-900 text-sm italic leading-snug shadow-lg${editableRing}`}
         onMouseDown={onMouseDown}
       >
         {text}
-        {resizeHandle}
       </div>
     );
   }
@@ -287,8 +271,9 @@ export default function TextOverlay({
     return (
       <div
         ref={elRef}
+        data-overlay-index={overlayIndex}
         style={positionStyle}
-        className={`flex flex-col items-start${editableRing}`}
+        className={`${bubbleClass} flex flex-col items-start${editableRing}`}
         onMouseDown={onMouseDown}
       >
         {speaker && (
@@ -306,7 +291,6 @@ export default function TextOverlay({
           {text}
           <div className="absolute -bottom-2 left-4 w-3 h-3 bg-white border-b-2 border-r-2 border-gray-900 rotate-45" />
         </div>
-        {resizeHandle}
       </div>
     );
   }
@@ -315,12 +299,12 @@ export default function TextOverlay({
   return (
     <div
       ref={elRef}
+      data-overlay-index={overlayIndex}
       style={positionStyle}
-      className={`bg-amber-100/95 border-2 border-gray-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-800 shadow-md${editableRing}`}
+      className={`${bubbleClass} bg-amber-100/95 border-2 border-gray-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-800 shadow-md${editableRing}`}
       onMouseDown={onMouseDown}
     >
       {text}
-      {resizeHandle}
     </div>
   );
 }

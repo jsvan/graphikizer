@@ -5,15 +5,19 @@ body {
   color: #e5e5e5;
 }
 
-/* Responsive comic grid overrides */
+/* Responsive comic grid — tablet gets 4 columns */
 @media (max-width: 1024px) {
   .comic-grid {
     grid-template-columns: repeat(4, 1fr) !important;
+    gap: 20px !important;
+    padding: 20px !important;
   }
 }
 
+/* Mobile: grid is not used (MobilePanelView takes over),
+   but keep a fallback in case the grid briefly renders */
 @media (max-width: 640px) {
   .comic-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
+    display: none !important;
   }
 }
