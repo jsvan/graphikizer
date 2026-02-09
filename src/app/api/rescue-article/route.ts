@@ -12,6 +12,33 @@ import type {
 
 export const maxDuration = 30;
 
+/** GET: List all article slugs in Blob storage (for discovering the right slug) */
+export async function GET() {
+  try {
+    const { blobs } = await list({ prefix: "articles/" });
+    // Extract unique slugs from paths like articles/{slug}/script.json
+    const slugs = new Set<string>();
+    const files: Record<string, string[]> = {};
+    for (const blob of blobs) {
+      const match = blob.pathname.match(/^articles\/([^/]+)\//);
+      if (match && match[1] !== "index.json") {
+        const s = match[1];
+        slugs.add(s);
+        if (!files[s]) files[s] = [];
+        files[s].push(blob.pathname.replace(`articles/${s}/`, ""));
+      }
+    }
+    return NextResponse.json({
+      slugs: [...slugs],
+      details: Object.fromEntries(
+        [...slugs].map((s) => [s, { fileCount: files[s].length, files: files[s].slice(0, 10) }])
+      ),
+    });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to list blobs" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { slug, password, title, sourceUrl } = (await req.json()) as {
