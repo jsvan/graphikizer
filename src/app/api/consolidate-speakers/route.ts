@@ -4,25 +4,18 @@ import { verifyPassword } from "@/lib/auth";
 
 export const maxDuration = 60;
 
-const MAX_SPEAKERS = 10;
+const SYSTEM_PROMPT = `You are a voice casting director for a graphic novel adaptation. Given a list of speaker names extracted from the dialogue, decide which speakers should share a voice actor.
 
-const SYSTEM_PROMPT = `You are an editor consolidating character voices for a graphic novel adaptation. Given a list of speaker names, merge them down to at most ${MAX_SPEAKERS} distinct voice actors.
+This ONLY controls which voice is used for audio — the original speaker name stays visible in the comic bubble. You are deciding who SOUNDS alike, not renaming anyone.
 
-This controls which VOICE is used, not the displayed name. The original speaker attribution stays visible in the comic — you are just deciding which speakers should SOUND alike (share a voice).
-
-Rules:
-1. Keep named real people (e.g. "Emmanuel Macron", "Olaf Scholz") as individual voices — but if the same person appears under multiple names or titles, pick one canonical name for the voice.
-2. Merge generic/unnamed speakers aggressively. Analyst types ("European Defense Analyst", "Strategic Analyst", "Security Expert", "Policy Expert", "Realist Scholar") → a single "Analyst" voice. Officials → "Official". Critics → "Critic".
-3. Groups and collective voices ("European Leaders", "Polish Officials", "German Policymakers") → merge into a suitable generic voice like "Official" or "Analyst". Every speaker must map to a real voice that will be created.
-4. Do NOT map anything to "Narrator" — that is reserved for narration boxes which have no voice. Every speaker needs a voice.
-5. If you must keep more than ${MAX_SPEAKERS} because there are that many distinct named individuals, that's OK — but never exceed ${MAX_SPEAKERS + 2}.
-6. Output a JSON object mapping EVERY original speaker name to its consolidated voice name. If a speaker keeps its own voice, map it to itself.`;
-
-interface ConsolidateRequest {
-  speakers: string[];
-  articleTitle: string;
-  password: string;
-}
+Guidelines:
+1. SAME PERSON, DIFFERENT LABELS: If the same real person appears under multiple names or titles (e.g. "Emmanuel Macron" and "French President", or "Sikorski" and "Poland's Foreign Minister"), they must share one voice. Pick the most recognizable name.
+2. DISTINCT REAL PEOPLE GET DISTINCT VOICES: "Emmanuel Macron" and "Olaf Scholz" are different people — they get different voices. Don't merge named individuals who are clearly different people.
+3. GENERIC ROLES THAT OVERLAP: Unnamed analyst/expert/scholar types that serve the same narrative role should share a voice. "European Defense Analyst", "Strategic Analyst", "Security Expert", and "Policy Expert" are all just "expert commentary" — one voice. Similarly, generic officials, critics, or observers that are interchangeable can share.
+4. GROUPS AND COLLECTIVES: "European Leaders", "Polish Officials", "German Policymakers" — these aren't individual characters. Group them into a fitting generic voice like "Official" or "Commentator".
+5. USE YOUR JUDGMENT on how many voices are needed. A short article about two leaders might need 3 voices. A sweeping geopolitical epic with 15 named figures might need 15. Don't force merges that would sound wrong — if two speakers have clearly different roles and would sound different, keep them separate.
+6. Do NOT map anything to "Narrator" — narration boxes have no voice. Every speaker in this list needs a real voice.
+7. Output a JSON object mapping EVERY original speaker name to its voice name. If a speaker keeps its own voice, map it to itself.`;
 
 export interface ConsolidateResponse {
   success: boolean;
@@ -32,8 +25,12 @@ export interface ConsolidateResponse {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as ConsolidateRequest;
-    const { speakers, articleTitle, password } = body;
+    const body = await req.json();
+    const { speakers, articleTitle, password } = body as {
+      speakers: string[];
+      articleTitle: string;
+      password: string;
+    };
 
     if (!speakers || speakers.length === 0 || !password) {
       return Response.json(
@@ -50,35 +47,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // If already under the limit, return identity mapping
-    if (speakers.length <= MAX_SPEAKERS) {
-      const mapping: Record<string, string> = {};
-      for (const s of speakers) mapping[s] = s;
-      return Response.json({ success: true, mapping } satisfies ConsolidateResponse);
-    }
-
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     const userPrompt = `Article: "${articleTitle}"
 
-There are ${speakers.length} speakers — too many. Consolidate to at most ${MAX_SPEAKERS}.
+These are the ${speakers.length} speaker names found in the dialogue bubbles. Decide which ones should share a voice actor.
 
-Current speakers:
+Speakers:
 ${speakers.map((s, i) => `${i + 1}. "${s}"`).join("\n")}
 
-Return a JSON object mapping every original name to its consolidated name. Example:
+Return a JSON object mapping every original name to the voice name it should use. Example:
 {
   "European Defense Analyst": "Analyst",
   "Strategic Analyst": "Analyst",
   "Emmanuel Macron": "Emmanuel Macron",
   "French President": "Emmanuel Macron",
-  "European Critics": "Critic",
-  "Polish Officials": "Official"
+  "Polish Officials": "Official",
+  "Olaf Scholz": "Olaf Scholz"
 }`;
 
-    // Use streaming with keepalive pattern (same as describe-voices)
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 2000,
@@ -118,7 +107,7 @@ Return a JSON object mapping every original name to its consolidated name. Examp
 
           const uniqueTargets = new Set(Object.values(mapping));
           console.log(
-            `[Consolidate] ${speakers.length} speakers → ${uniqueTargets.size} (${[...uniqueTargets].join(", ")})`
+            `[Consolidate] ${speakers.length} speakers → ${uniqueTargets.size} voices (${[...uniqueTargets].join(", ")})`
           );
 
           controller.enqueue(

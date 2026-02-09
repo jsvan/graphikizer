@@ -716,9 +716,9 @@ export default function UploadForm() {
 
     const allSpeakers = extractSpeakers(script);
 
-    // Consolidate speakers if too many — only affects voice assignment, not display names
+    // Consolidate voice assignments — decides which speakers share a voice actor
     voiceGroupRef.current = {};
-    if (allSpeakers.length > 10) {
+    if (allSpeakers.length > 0) {
       console.log(`[Speakers] ${allSpeakers.length} speakers — consolidating voice assignments...`);
       setStage("voices");
       setVoiceSubStage("describing");
