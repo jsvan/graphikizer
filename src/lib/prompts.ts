@@ -19,7 +19,7 @@ const PANEL_LAYOUT_RULES = `PANEL LAYOUT ("layout" field):
 
 const OVERLAY_RULES = `TEXT OVERLAYS:
 - Types: "narration", "dialogue" (requires "speaker"), "caption" (labels/dates/locations)
-- Overlay positioning (x, y, anchor, maxWidthPercent) is auto-computed — provide rough values but they'll be overridden. Focus on content.
+- Overlay positioning is auto-computed — do NOT include x, y, anchor, or maxWidthPercent. Focus on content.
 - For dialogue, include "characterPosition": where the speaker is in the panel. Values: "center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right".
 
 FOCAL POINT ("focalPoint" field):
@@ -93,8 +93,8 @@ OUTPUT FORMAT (strict JSON):
       "layout": "wide",
       "focalPoint": "center",
       "overlays": [
-        { "type": "narration", "text": "...", "x": 5, "y": 5, "anchor": "top-left", "maxWidthPercent": 40 },
-        { "type": "dialogue", "speaker": "Name", "text": "...", "x": 55, "y": 20, "anchor": "top-right", "maxWidthPercent": 40, "characterPosition": "left" }
+        { "type": "narration", "text": "..." },
+        { "type": "dialogue", "speaker": "Name", "text": "...", "characterPosition": "left" }
       ]
     }
   ]
@@ -153,7 +153,7 @@ OUTPUT FORMAT (strict JSON):
       "layout": "normal",
       "focalPoint": "left",
       "overlays": [
-        { "type": "dialogue", "speaker": "Name", "text": "...", "x": 55, "y": 20, "anchor": "top-right", "maxWidthPercent": 40, "characterPosition": "left" }
+        { "type": "dialogue", "speaker": "Name", "text": "...", "characterPosition": "left" }
       ]
     }
   ]
