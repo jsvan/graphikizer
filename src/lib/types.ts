@@ -120,29 +120,6 @@ export interface ArticleManifest {
   status?: "generating" | "partial" | "complete";
 }
 
-// Generation pipeline stages
-export type GenerationStage =
-  | "idle"
-  | "script"
-  | "editing"
-  | "voices"
-  | "panels"
-  | "saving"
-  | "done"
-  | "error"
-  | "partial";
-
-// Interactive failure handling
-export type UserDecision = "retry" | "skip" | "skip_section" | "terminate";
-export type PipelineSection = "voice_creation" | "tts" | "panels";
-export interface PendingDecision {
-  section: PipelineSection;
-  failedDetails: string[];
-  succeededCount: number;
-  failedCount: number;
-  totalCount: number;
-}
-
 // Article summary for the index
 export interface ArticleIndexEntry {
   title: string;
@@ -157,35 +134,6 @@ export interface ArticleIndexEntry {
 }
 
 // API request/response types
-export interface GenerateScriptRequest {
-  title: string;
-  sourceUrl: string;
-  articleText: string;
-  password: string;
-}
-
-export interface GenerateScriptResponse {
-  success: boolean;
-  script?: ComicScript;
-  error?: string;
-}
-
-export interface GeneratePanelRequest {
-  artworkPrompt: string;
-  artStyle: ArtStyle;
-  slug: string;
-  panelIndex: number;
-  password: string;
-  layout?: PanelLayout;
-}
-
-export interface GeneratePanelResponse {
-  success: boolean;
-  imageUrl?: string;
-  panelIndex?: number;
-  error?: string;
-}
-
 export interface SaveArticleRequest {
   manifest: ArticleManifest;
   password: string;
@@ -207,43 +155,3 @@ export interface DeleteArticleResponse {
   error?: string;
 }
 
-export interface GenerateVoiceRequest {
-  text: string;
-  speaker: string;
-  voiceId: string;
-  slug: string;
-  panelIndex: number;
-  overlayIndex: number;
-  password: string;
-}
-
-export interface GenerateVoiceResponse {
-  success: boolean;
-  audioUrl?: string;
-  error?: string;
-}
-
-export interface DescribeVoicesRequest {
-  speakers: string[];
-  articleTitle: string;
-  password: string;
-}
-
-export interface DescribeVoicesResponse {
-  success: boolean;
-  descriptions?: Record<string, string>;
-  error?: string;
-}
-
-export interface CreateVoiceRequest {
-  voiceDescription: string;
-  speakerLabel: string;
-  sampleText: string;
-  password: string;
-}
-
-export interface CreateVoiceResponse {
-  success: boolean;
-  voiceId?: string;
-  error?: string;
-}

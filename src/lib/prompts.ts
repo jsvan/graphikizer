@@ -1,15 +1,16 @@
 import type { ArtStyle } from "./types";
 
 const CONTENT_RULES = `CONTENT RULES:
-1. COVER EVERY ARGUMENT. Walk through the section paragraph by paragraph. Do not skip significant arguments, data, or evidence.
+1. COVER THE KEY ARGUMENTS. Hit every major claim, but combine related points into single panels. Multiple paragraphs can share one panel if they make the same argument.
 2. DIALOGUE IS PRIMARY. This is a graphic novel, not an illustrated essay.
    - Direct quotes → dialogue with the real speaker name
-   - Positions attributable to a person/country/group → dialogue ("Finland believes X" → speech from that speaker)
-   - Paraphrased positions ("Critics contend...") → dialogue from a named or labeled speaker
-   - Narration ONLY for transitions, background context, pure exposition. Keep narration to 1-2 sentences max.
-3. Every panel needs at least one overlay. Most panels should have 2-3. At least half of all panels must have dialogue.
-4. Use captions liberally for dates, locations, statistics, and contextual labels.
-5. SPEAKERS: Use consistent names. Consolidate generic voices (analysts, officials, experts) into a small set like "Analyst", "Official", "Critic" — don't invent unique names for each.`;
+   - Positions attributable to a person/country/group → dialogue from that speaker
+   - Paraphrased positions ("Critics contend...") → dialogue from a labeled speaker
+   - Narration ONLY for transitions and pure exposition. 1-2 sentences max per narration box.
+3. Every panel needs at least one overlay. Most panels should have 2-3 overlays. At least half of all panels must have dialogue.
+4. Use captions for dates, locations, statistics.
+5. SPEAKERS: Consolidate generic voices into a small set like "Analyst", "Official", "Critic".
+6. If a point has no concrete visual (no specific person, place, or event), make it a textOnly panel rather than inventing abstract imagery.`;
 
 const PANEL_LAYOUT_RULES = `PANEL LAYOUT ("layout" field):
 - "normal" (2-col span, ~60%) — standard panel
@@ -18,10 +19,8 @@ const PANEL_LAYOUT_RULES = `PANEL LAYOUT ("layout" field):
 - "large" (3-col, 2-row, ~10%) — big moments, splash panels
 
 TEXT-ONLY PANELS ("textOnly" field):
-- Set "textOnly": true for panels that are purely narration/caption transitions with no strong visual.
-- Text-only panels still need an artworkPrompt (for metadata) but no image is generated.
-- Do NOT use textOnly for dialogue panels, action, or panels with specific visual subjects.
-- Typically 0-2 per section. Most panels should have images.`;
+- "textOnly": true → narration/caption rendered on a dark background, no image generated. Keep the artworkPrompt.
+- Use for any panel with no dialogue AND no specific person, place, or action to depict. Don't invent abstract/symbolic imagery — use textOnly instead.`;
 
 const OVERLAY_RULES = `TEXT OVERLAYS:
 - Types: "narration", "dialogue" (requires "speaker"), "caption" (labels/dates/locations)
@@ -33,11 +32,11 @@ Where the main visual subject is. The layout engine places text AWAY from this p
 Values: "center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"`;
 
 const ARTWORK_RULES = `ARTWORK (artworkPrompt field — sent directly to an image AI):
-- Image-prompt style: concrete visual details, specific and literal. No metaphors or abstract concepts.
-- NEVER include text, words, letters, numbers, or labels — they render as gibberish.
-- Describe: specific people, places, objects, lighting, composition, camera angle. 2-4 vivid sentences.
+- Concrete visual details only. Describe specific people, places, objects, lighting, composition. 2-4 sentences.
 - USE REAL NAMES: "Emmanuel Macron in a dark suit" not "the French leader".
-- CONTENT SAFETY: No nudity, gore, graphic violence, or sexual content. Depict conflict through body language, symbolic imagery, and dramatic composition. Show strategy rooms, leaders, maps — not casualties.`;
+- NEVER include text, words, letters, numbers — they render as gibberish.
+- NO abstract/symbolic imagery ("fragmented map representing division", "chess pieces representing power"). If you can't describe a concrete scene, make it a textOnly panel.
+- CONTENT SAFETY: No nudity, gore, graphic violence. Show strategy rooms, leaders, maps — not casualties.`;
 
 const ART_STYLE_OPTIONS = `ART STYLE — choose ONE matching the article's tone. Don't default to dark/gritty — most FA articles are analytical. Prefer color and visual variety.
 - "European Ligne Claire" — clean outlines, vivid fills (Tintin). Politics, diplomacy.
@@ -51,26 +50,23 @@ const ART_STYLE_OPTIONS = `ART STYLE — choose ONE matching the article's tone.
 - Or invent a style if none fit.`;
 
 /**
- * Prompt for the first chunk of an article. Picks art style and generates initial panels.
+ * Single-pass prompt: generates the complete graphic novel script from the full article.
  */
-export function buildFirstChunkPrompt(
+export function buildScriptPrompt(
   title: string,
-  articleChunk: string,
-  chunkNumber: number,
-  totalChunks: number
+  articleText: string
 ): string {
-  return `You are adapting a Foreign Affairs article into a graphic novel, section by section. This is section ${chunkNumber} of ${totalChunks}. A reader who ONLY reads the comic should understand the article's full argument.
+  return `You are adapting a Foreign Affairs article into a complete graphic novel. A reader who ONLY reads the comic should understand the article's full argument.
 
 ARTICLE: "${title}"
 
-SECTION ${chunkNumber}/${totalChunks}:
-${articleChunk}
+${articleText}
 
 ---
 
 ${CONTENT_RULES}
 
-PANEL COUNT: Aim for roughly 5-8 panels, but use as many or as few as needed to cover all the content. A short transitional section might need only 3; a dense section with many arguments might need 10. Don't pad with filler and don't cram too much into one panel. Start at panelIndex 0.
+PANEL COUNT: Use as many panels as the article needs — typically 30-50 for a full-length article. Combine related arguments into single panels. Start at panelIndex 0 and number sequentially.
 
 ${ART_STYLE_OPTIONS}
 
@@ -101,66 +97,6 @@ OUTPUT FORMAT (strict JSON):
       "textOnly": false,
       "overlays": [
         { "type": "narration", "text": "..." },
-        { "type": "dialogue", "speaker": "Name", "text": "...", "characterPosition": "left" }
-      ]
-    }
-  ]
-}
-
-Respond ONLY with valid JSON. No markdown fences, no explanation.`;
-}
-
-/**
- * Prompt for continuation chunks. Receives the art style and continues panel numbering.
- */
-export function buildContinuationChunkPrompt(
-  title: string,
-  articleChunk: string,
-  artStyle: ArtStyle,
-  startPanelIndex: number,
-  chunkNumber: number,
-  totalChunks: number
-): string {
-  return `Continuing a graphic novel adaptation. Section ${chunkNumber} of ${totalChunks}. Cover ALL content thoroughly.
-
-ARTICLE: "${title}"
-
-ART STYLE (use exactly):
-- Name: "${artStyle.name}"
-- Description: ${artStyle.description}
-- Color Palette: ${artStyle.colorPalette}
-- Rendering: ${artStyle.renderingNotes}
-
-Start each artworkPrompt with: "In ${artStyle.name} style, ..."
-Continue from panelIndex ${startPanelIndex}.
-
-SECTION ${chunkNumber}/${totalChunks}:
-${articleChunk}
-
----
-
-${CONTENT_RULES}
-
-PANEL COUNT: Aim for roughly 5-8 panels, but use as many or as few as needed. Don't pad with filler and don't cram too much into one panel. Start at panelIndex ${startPanelIndex}.
-
-${PANEL_LAYOUT_RULES}
-
-${OVERLAY_RULES}
-
-${ARTWORK_RULES}
-
----
-
-OUTPUT FORMAT (strict JSON):
-{
-  "panels": [
-    {
-      "panelIndex": ${startPanelIndex},
-      "artworkPrompt": "In ${artStyle.name} style, ...",
-      "layout": "normal",
-      "focalPoint": "left",
-      "textOnly": false,
-      "overlays": [
         { "type": "dialogue", "speaker": "Name", "text": "...", "characterPosition": "left" }
       ]
     }
