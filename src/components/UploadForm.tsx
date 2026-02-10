@@ -244,6 +244,7 @@ export default function UploadForm() {
                 slug: script.slug,
                 panelIndex: panel.panelIndex,
                 password,
+                layout: panel.layout,
               }),
             });
 

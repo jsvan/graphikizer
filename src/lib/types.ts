@@ -174,6 +174,7 @@ export interface GeneratePanelRequest {
   slug: string;
   panelIndex: number;
   password: string;
+  layout?: PanelLayout;
 }
 
 export interface GeneratePanelResponse {

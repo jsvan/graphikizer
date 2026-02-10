@@ -3,14 +3,21 @@ import Replicate from "replicate";
 import { verifyPassword } from "@/lib/auth";
 import { buildPanelImagePrompt } from "@/lib/prompts";
 import { uploadPanelImage, checkPanelExists } from "@/lib/blob";
-import type { GeneratePanelRequest, GeneratePanelResponse } from "@/lib/types";
+import type { GeneratePanelRequest, GeneratePanelResponse, PanelLayout } from "@/lib/types";
+
+const LAYOUT_DIMENSIONS: Record<PanelLayout, { w: number; h: number }> = {
+  normal: { w: 1024, h: 768 },
+  wide: { w: 1024, h: 576 },
+  tall: { w: 768, h: 1024 },
+  large: { w: 1024, h: 768 },
+};
 
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as GeneratePanelRequest;
-    const { artworkPrompt, artStyle, slug, panelIndex, password } = body;
+    const { artworkPrompt, artStyle, slug, panelIndex, password, layout } = body;
 
     if (!artworkPrompt || !artStyle || !slug || panelIndex === undefined || !password) {
       return NextResponse.json<GeneratePanelResponse>(
@@ -42,6 +49,7 @@ export async function POST(req: NextRequest) {
     });
 
     const prompt = buildPanelImagePrompt(artworkPrompt, artStyle);
+    const dims = LAYOUT_DIMENSIONS[layout || "normal"];
 
     const MAX_RETRIES = 6;
     let output: unknown;
@@ -51,8 +59,8 @@ export async function POST(req: NextRequest) {
         output = await replicate.run("black-forest-labs/flux-1.1-pro", {
           input: {
             prompt,
-            width: 1024,
-            height: 1024,
+            width: dims.w,
+            height: dims.h,
             prompt_upsampling: true,
           },
         });
