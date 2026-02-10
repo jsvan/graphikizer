@@ -55,6 +55,8 @@ export interface ComicPanel {
   focalPoint?: FocalPoint;
   imageUrl?: string;
   panelMargins?: PanelMargins;
+  /** Text-only panel — no image generated, overlays rendered on dark gradient background */
+  textOnly?: boolean;
 }
 
 // A page of panels

@@ -6,6 +6,7 @@ import TextOverlay from "./TextOverlay";
 import CharacterMarble from "./CharacterMarble";
 import { useVoicePanelState } from "@/hooks/useVoicePanelState";
 import { resolveMarbleCollisions } from "@/lib/marbleCollision";
+import { TextOnlyPanelContent } from "./TextOnlyPanel";
 
 interface AudioComicPanelProps {
   panel: ComicPanelType;
@@ -26,6 +27,38 @@ export default function AudioComicPanel({
   const { imageUrl, overlays, layout } = panel;
   const gridClass = layoutClasses[layout] || layoutClasses.normal;
   const { activeOverlay, voiceState, play, stop } = useVoicePanelState();
+
+  if (panel.textOnly) {
+    return (
+      <div className={`${gridClass} flex flex-col border-2 border-gray-800`}>
+        <div className="relative">
+          <TextOnlyPanelContent panel={panel} />
+          {/* Inline play buttons for any dialogue with audio */}
+          {overlays.map((overlay, i) => {
+            if (overlay.type !== "dialogue" || !overlay.audioUrl) return null;
+            const isActive = activeOverlay === i;
+            return (
+              <button
+                key={`play-${i}`}
+                onClick={() => {
+                  if (isActive && voiceState === "playing") stop();
+                  else play(i, overlay.audioUrl!);
+                }}
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-amber-500/80 flex items-center justify-center hover:bg-amber-400 transition-colors"
+                style={{ right: `${8 + i * 36}px` }}
+              >
+                {isActive && voiceState === "playing" ? (
+                  <span className="text-xs text-gray-900 font-bold">||</span>
+                ) : (
+                  <span className="text-xs text-gray-900 font-bold ml-0.5">&#9654;</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   const voiceMap = new Map(voices.map((v) => [v.speaker, v]));
 

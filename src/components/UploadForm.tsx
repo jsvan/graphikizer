@@ -216,8 +216,8 @@ export default function UploadForm() {
     script: ComicScript
   ): Promise<{ script: ComicScript; failedPanels: number[] }> {
     const allPanels = script.pages.flatMap((page) => page.panels);
-    // Skip panels that already have images (for retry passes)
-    const pending = allPanels.filter((p) => !p.imageUrl);
+    // Skip panels that already have images (for retry passes) or are text-only
+    const pending = allPanels.filter((p) => !p.imageUrl && !p.textOnly);
     let completed = 0;
     const failedPanels: number[] = [];
 
@@ -644,7 +644,7 @@ export default function UploadForm() {
     script: ComicScript
   ): Promise<void> {
     const allPanels = script.pages.flatMap((p) => p.panels);
-    const pending = allPanels.filter((p) => !p.imageUrl);
+    const pending = allPanels.filter((p) => !p.imageUrl && !p.textOnly);
 
     setTotalPanels(pending.length);
     setCurrentPanel(0);
@@ -658,10 +658,10 @@ export default function UploadForm() {
     while (true) {
       const failed = script.pages
         .flatMap((p) => p.panels)
-        .filter((p) => !p.imageUrl);
+        .filter((p) => !p.imageUrl && !p.textOnly);
       if (failed.length === 0) break;
 
-      const total = script.pages.flatMap((p) => p.panels).length;
+      const total = script.pages.flatMap((p) => p.panels).filter((p) => !p.textOnly).length;
       const decision = await waitForDecision({
         section: "panels",
         failedDetails: failed.map((p) => `Panel ${p.panelIndex + 1}`),
@@ -804,7 +804,7 @@ export default function UploadForm() {
     // Step 3: Panels
     const hasMissingPanels = script.pages
       .flatMap((p) => p.panels)
-      .some((p) => !p.imageUrl);
+      .some((p) => !p.imageUrl && !p.textOnly);
 
     if (hasMissingPanels) {
       await runPanelsWithDecisions(script);
@@ -812,7 +812,7 @@ export default function UploadForm() {
 
     // Step 4: Final save
     const hasAnyFailures =
-      script.pages.flatMap((p) => p.panels).some((p) => !p.imageUrl) ||
+      script.pages.flatMap((p) => p.panels).some((p) => !p.imageUrl && !p.textOnly) ||
       (!skipAudio && countMissingAudio(script) > 0);
     const finalStatus = hasAnyFailures ? "partial" : "complete";
 
@@ -939,9 +939,11 @@ export default function UploadForm() {
           console.log(`[Script] Art style: ${artStyle.name}`);
         }
 
-        // Run placement algorithm on each panel's overlays
+        // Run placement algorithm on each panel's overlays (skip text-only panels)
         for (const panel of parsed.panels) {
-          panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+          if (!panel.textOnly) {
+            panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+          }
         }
 
         allPanels.push(...parsed.panels);
@@ -1021,6 +1023,7 @@ export default function UploadForm() {
             artworkPrompt: p.artworkPrompt,
             layout: p.layout,
             focalPoint: p.focalPoint,
+            textOnly: p.textOnly,
             overlays: p.overlays.map((o) => ({
               type: o.type,
               text: o.text,
@@ -1066,7 +1069,7 @@ export default function UploadForm() {
 
           if (editResult.success && Array.isArray(editResult.panels)) {
             const editedPanelMap = new Map(
-              editResult.panels.map((p: { panelIndex: number; overlays: unknown[]; artworkPrompt?: string }) => [p.panelIndex, p])
+              editResult.panels.map((p: { panelIndex: number; overlays: unknown[]; artworkPrompt?: string; textOnly?: boolean }) => [p.panelIndex, p])
             );
             for (const page of script.pages) {
               for (const panel of page.panels) {
@@ -1078,7 +1081,11 @@ export default function UploadForm() {
                     characterPosition?: string;
                   }>;
                   artworkPrompt?: string;
+                  textOnly?: boolean;
                 } | undefined;
+                if (edited && 'textOnly' in edited) {
+                  panel.textOnly = !!edited.textOnly;
+                }
                 if (edited?.overlays && edited.overlays.length > 0) {
                   panel.overlays = edited.overlays.map((o) => ({
                     type: o.type as "dialogue" | "narration" | "caption",
@@ -1089,7 +1096,9 @@ export default function UploadForm() {
                     ...(o.speaker ? { speaker: o.speaker } : {}),
                     ...(o.characterPosition ? { characterPosition: o.characterPosition as import("@/lib/types").FocalPoint } : {}),
                   }));
-                  panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+                  if (!panel.textOnly) {
+                    panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+                  }
                 }
                 if (edited?.artworkPrompt) {
                   panel.artworkPrompt = edited.artworkPrompt;
@@ -1183,7 +1192,7 @@ export default function UploadForm() {
       const needVoiceDescriptions = speakersWithoutVoices.length > 0;
 
       console.log(
-        `[Resume] Article "${manifest.title}": ${speakersWithoutVoices.length} speakers need voices, ${countMissingAudio(script)} missing TTS, ${script.pages.flatMap((p) => p.panels).filter((p) => !p.imageUrl).length} missing panels`
+        `[Resume] Article "${manifest.title}": ${speakersWithoutVoices.length} speakers need voices, ${countMissingAudio(script)} missing TTS, ${script.pages.flatMap((p) => p.panels).filter((p) => !p.imageUrl && !p.textOnly).length} missing panels`
       );
 
       // Run the pipeline for missing items

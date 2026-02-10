@@ -15,7 +15,13 @@ const PANEL_LAYOUT_RULES = `PANEL LAYOUT ("layout" field):
 - "normal" (2-col span, ~60%) — standard panel
 - "wide" (3-col span, ~20%) — panoramic, landscapes, establishing shots
 - "tall" (2-col, 2-row, ~10%) — vertical, dramatic reveals
-- "large" (3-col, 2-row, ~10%) — big moments, splash panels`;
+- "large" (3-col, 2-row, ~10%) — big moments, splash panels
+
+TEXT-ONLY PANELS ("textOnly" field):
+- Set "textOnly": true for panels that are purely narration/caption transitions with no strong visual.
+- Text-only panels still need an artworkPrompt (for metadata) but no image is generated.
+- Do NOT use textOnly for dialogue panels, action, or panels with specific visual subjects.
+- Typically 0-2 per section. Most panels should have images.`;
 
 const OVERLAY_RULES = `TEXT OVERLAYS:
 - Types: "narration", "dialogue" (requires "speaker"), "caption" (labels/dates/locations)
@@ -92,6 +98,7 @@ OUTPUT FORMAT (strict JSON):
       "artworkPrompt": "In [Style] style, ...",
       "layout": "wide",
       "focalPoint": "center",
+      "textOnly": false,
       "overlays": [
         { "type": "narration", "text": "..." },
         { "type": "dialogue", "speaker": "Name", "text": "...", "characterPosition": "left" }
@@ -152,6 +159,7 @@ OUTPUT FORMAT (strict JSON):
       "artworkPrompt": "In ${artStyle.name} style, ...",
       "layout": "normal",
       "focalPoint": "left",
+      "textOnly": false,
       "overlays": [
         { "type": "dialogue", "speaker": "Name", "text": "...", "characterPosition": "left" }
       ]

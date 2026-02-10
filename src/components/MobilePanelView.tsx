@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import type { ComicPanel } from "@/lib/types";
+import { TextOnlyPanelContent } from "./TextOnlyPanel";
 
 interface MobilePanelViewProps {
   panels: ComicPanel[];
@@ -42,6 +43,58 @@ export default function MobilePanelView({
   );
 
   if (!panel) return null;
+
+  // Text-only panel: show content on dark gradient, keep nav
+  if (panel.textOnly) {
+    return (
+      <div
+        className="w-full"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <div className="flex items-center justify-between px-4 py-3">
+          <button
+            onClick={onPrev}
+            disabled={currentPanel === 0}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            &larr;
+          </button>
+          <span className="text-gray-400 text-sm font-mono">
+            Panel {currentPanel + 1} / {panels.length}
+          </span>
+          <button
+            onClick={onNext}
+            disabled={currentPanel === panels.length - 1}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            &rarr;
+          </button>
+        </div>
+
+        <div className="w-full border-y-2 border-gray-800">
+          <TextOnlyPanelContent panel={panel} />
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800/50">
+          <button
+            onClick={onPrev}
+            disabled={currentPanel === 0}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            &larr; Prev
+          </button>
+          <button
+            onClick={onNext}
+            disabled={currentPanel === panels.length - 1}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            Next &rarr;
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const { imageUrl, overlays } = panel;
 

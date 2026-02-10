@@ -5,6 +5,7 @@ import type { ComicPanel, CharacterVoiceProfile } from "@/lib/types";
 import CharacterMarble from "./CharacterMarble";
 import { useVoicePanelState } from "@/hooks/useVoicePanelState";
 import { resolveMarbleCollisions } from "@/lib/marbleCollision";
+import { TextOnlyPanelContent } from "./TextOnlyPanel";
 
 interface AudioMobilePanelViewProps {
   panels: ComicPanel[];
@@ -49,6 +50,82 @@ export default function AudioMobilePanelView({
   );
 
   if (!panel) return null;
+
+  // Text-only panel: show content on dark gradient with inline play buttons
+  if (panel.textOnly) {
+    return (
+      <div
+        className="w-full"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <div className="flex items-center justify-between px-4 py-3">
+          <button
+            onClick={onPrev}
+            disabled={currentPanel === 0}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            &larr;
+          </button>
+          <span className="text-gray-400 text-sm font-mono">
+            Panel {currentPanel + 1} / {panels.length}
+          </span>
+          <button
+            onClick={onNext}
+            disabled={currentPanel === panels.length - 1}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            &rarr;
+          </button>
+        </div>
+
+        <div className="w-full border-y-2 border-gray-800 relative">
+          <TextOnlyPanelContent panel={panel} />
+          {/* Inline play buttons for dialogue with audio */}
+          <div className="absolute top-2 right-2 flex gap-1">
+            {panel.overlays.map((overlay, i) => {
+              if (overlay.type !== "dialogue" || !overlay.audioUrl) return null;
+              const overlayIndex = panel.overlays.indexOf(overlay);
+              const isActive = activeOverlay === overlayIndex;
+              return (
+                <button
+                  key={`play-${i}`}
+                  onClick={() => {
+                    if (isActive && voiceState === "playing") stop();
+                    else play(overlayIndex, overlay.audioUrl!);
+                  }}
+                  className="w-8 h-8 rounded-full bg-amber-500/80 flex items-center justify-center hover:bg-amber-400 transition-colors"
+                >
+                  {isActive && voiceState === "playing" ? (
+                    <span className="text-xs text-gray-900 font-bold">||</span>
+                  ) : (
+                    <span className="text-xs text-gray-900 font-bold ml-0.5">&#9654;</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800/50">
+          <button
+            onClick={onPrev}
+            disabled={currentPanel === 0}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            &larr; Prev
+          </button>
+          <button
+            onClick={onNext}
+            disabled={currentPanel === panels.length - 1}
+            className="px-4 py-2 bg-gray-800 text-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors text-sm font-medium"
+          >
+            Next &rarr;
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const { imageUrl, overlays } = panel;
 

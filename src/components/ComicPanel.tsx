@@ -2,6 +2,7 @@
 
 import type { ComicPanel as ComicPanelType } from "@/lib/types";
 import TextOverlay from "./TextOverlay";
+import { TextOnlyPanelContent } from "./TextOnlyPanel";
 
 interface ComicPanelProps {
   panel: ComicPanelType;
@@ -19,6 +20,14 @@ const layoutClasses: Record<string, string> = {
 export default function ComicPanel({ panel, editable, onOverlayPositionChange }: ComicPanelProps) {
   const { imageUrl, overlays, layout } = panel;
   const gridClass = layoutClasses[layout] || layoutClasses.normal;
+
+  if (panel.textOnly) {
+    return (
+      <div className={`${gridClass} flex flex-col border-2 border-gray-800`}>
+        <TextOnlyPanelContent panel={panel} />
+      </div>
+    );
+  }
 
   const hasDialogue = overlays.some((o) => o.type === "dialogue");
 

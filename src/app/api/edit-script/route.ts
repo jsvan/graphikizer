@@ -18,8 +18,9 @@ Rules:
 9. You may remove overlays or add new ones, but every panel must keep at least one overlay
 10. When converting narration to dialogue, set type to "dialogue" and include the appropriate speaker name
 11. For every dialogue overlay, include "characterPosition" — where the speaker is in the panel artwork. Values: "center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right". Preserve existing values; for new dialogue, infer from the artworkPrompt.
+12. TEXT-ONLY PANELS: If after editing, a panel has only narration/captions (no dialogue) and no strong visual concept, you may add "textOnly": true. This skips image generation. Use sparingly. Keep the artworkPrompt.
 
-Output a JSON array where each element has ONLY these fields: panelIndex, artworkPrompt, overlays. Do NOT include layout or focalPoint in the output — they are read-only context. Output valid JSON only, no markdown fences, no commentary.`;
+Output a JSON array where each element has ONLY these fields: panelIndex, artworkPrompt, overlays, textOnly (optional boolean). Do NOT include layout or focalPoint in the output — they are read-only context. Output valid JSON only, no markdown fences, no commentary.`;
 
 /** Strip markdown fences and trim. */
 function stripFences(text: string): string {
