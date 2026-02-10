@@ -27,6 +27,7 @@ const CONCURRENCY_LIMIT = 5;
 const VOICE_CONCURRENCY_LIMIT = 2; // ElevenLabs allows max 3 concurrent; keep headroom
 const TARGET_WORDS_PER_CHUNK = 600;
 const PANELS_PER_PAGE = 10;
+const EDIT_BATCH_SIZE = 15;
 
 /** Split article text into chunks on paragraph boundaries. */
 function splitIntoChunks(text: string, targetWords: number): string[] {
@@ -119,6 +120,8 @@ export default function UploadForm() {
   const [voiceSubStage, setVoiceSubStage] = useState<"describing" | "creating" | "speaking" | undefined>(undefined);
   const [pendingDecision, setPendingDecision] = useState<PendingDecision | null>(null);
   const [resumeReady, setResumeReady] = useState(false);
+  const [editBatch, setEditBatch] = useState(0);
+  const [totalEditBatches, setTotalEditBatches] = useState(0);
   const abortRef = useRef(false);
 
   // Persistent refs for retry across function calls
@@ -1006,10 +1009,12 @@ export default function UploadForm() {
         body: JSON.stringify({ manifest: earlyManifest, password }),
       });
 
-      // Step 1b: Editorial pass — tighten narration, convert to dialogue
+      // Step 1b: Editorial pass — tighten narration, convert to dialogue (batched)
       setStage("editing");
       try {
-        const allPanelsForEdit = script.pages.flatMap((page) =>
+        // Send full panel context (including sourceExcerpt/layout/focalPoint as read-only context)
+        // The editor prompt tells Claude to output only panelIndex + artworkPrompt + overlays
+        const allPanelsFlat = script.pages.flatMap((page) =>
           page.panels.map((p) => ({
             panelIndex: p.panelIndex,
             artworkPrompt: p.artworkPrompt,
@@ -1025,53 +1030,79 @@ export default function UploadForm() {
           }))
         );
 
-        const editRes = await fetch("/api/edit-script", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ panels: allPanelsForEdit, password }),
-        });
+        // Split panels into batches of EDIT_BATCH_SIZE
+        const editBatches: typeof allPanelsFlat[] = [];
+        for (let i = 0; i < allPanelsFlat.length; i += EDIT_BATCH_SIZE) {
+          editBatches.push(allPanelsFlat.slice(i, i + EDIT_BATCH_SIZE));
+        }
 
-        const editText = await editRes.text();
-        const editLines = editText.split("\n").filter(Boolean);
-        const editResult =
-          editLines.length > 0
-            ? JSON.parse(editLines[editLines.length - 1])
-            : { success: false };
+        setTotalEditBatches(editBatches.length);
+        console.log(`[Editor] Editing ${allPanelsFlat.length} panels in ${editBatches.length} batches of ~${EDIT_BATCH_SIZE}`);
 
-        if (editResult.success && Array.isArray(editResult.panels)) {
-          // Apply edited overlays back to the script panels
-          const editedPanelMap = new Map(
-            editResult.panels.map((p: { panelIndex: number; overlays: unknown[] }) => [p.panelIndex, p])
-          );
-          for (const page of script.pages) {
-            for (const panel of page.panels) {
-              const edited = editedPanelMap.get(panel.panelIndex) as {
-                overlays: Array<{
-                  type: string;
-                  text: string;
-                  speaker?: string;
-                  characterPosition?: string;
-                }>;
-              } | undefined;
-              if (edited?.overlays && edited.overlays.length > 0) {
-                panel.overlays = edited.overlays.map((o) => ({
-                  type: o.type as "dialogue" | "narration" | "caption",
-                  text: o.text,
-                  x: 0,
-                  y: 0,
-                  anchor: "top-left" as const,
-                  ...(o.speaker ? { speaker: o.speaker } : {}),
-                  ...(o.characterPosition ? { characterPosition: o.characterPosition as import("@/lib/types").FocalPoint } : {}),
-                }));
-                // Re-run placement since text lengths may have changed
-                panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+        for (let bi = 0; bi < editBatches.length; bi++) {
+          setEditBatch(bi + 1);
+          const batch = editBatches[bi];
+
+          const editRes = await fetch("/api/edit-script", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              panels: batch,
+              password,
+              articleText,
+              articleTitle: title,
+              batchIndex: bi,
+              totalBatches: editBatches.length,
+              totalPanelCount: allPanelsFlat.length,
+            }),
+          });
+
+          const editText = await editRes.text();
+          const editLines = editText.split("\n").filter(Boolean);
+          const editResult =
+            editLines.length > 0
+              ? JSON.parse(editLines[editLines.length - 1])
+              : { success: false };
+
+          if (editResult.success && Array.isArray(editResult.panels)) {
+            const editedPanelMap = new Map(
+              editResult.panels.map((p: { panelIndex: number; overlays: unknown[]; artworkPrompt?: string }) => [p.panelIndex, p])
+            );
+            for (const page of script.pages) {
+              for (const panel of page.panels) {
+                const edited = editedPanelMap.get(panel.panelIndex) as {
+                  overlays: Array<{
+                    type: string;
+                    text: string;
+                    speaker?: string;
+                    characterPosition?: string;
+                  }>;
+                  artworkPrompt?: string;
+                } | undefined;
+                if (edited?.overlays && edited.overlays.length > 0) {
+                  panel.overlays = edited.overlays.map((o) => ({
+                    type: o.type as "dialogue" | "narration" | "caption",
+                    text: o.text,
+                    x: 0,
+                    y: 0,
+                    anchor: "top-left" as const,
+                    ...(o.speaker ? { speaker: o.speaker } : {}),
+                    ...(o.characterPosition ? { characterPosition: o.characterPosition as import("@/lib/types").FocalPoint } : {}),
+                  }));
+                  panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+                }
+                if (edited?.artworkPrompt) {
+                  panel.artworkPrompt = edited.artworkPrompt;
+                }
               }
             }
+            console.log(`[Editor] Batch ${bi + 1}/${editBatches.length} complete`);
+          } else {
+            console.warn(`[Editor] Batch ${bi + 1} failed or returned bad data, keeping original`);
           }
-          console.log("[Editor] Script editing complete — overlays updated");
-        } else {
-          console.warn("[Editor] Edit failed or returned bad data, using original script");
         }
+
+        console.log("[Editor] Script editing complete — all batches processed");
       } catch (editErr) {
         console.warn("[Editor] Script editing error (non-fatal):", editErr);
       }
@@ -1349,6 +1380,8 @@ export default function UploadForm() {
           currentVoice={currentVoice}
           totalVoices={totalVoices}
           voiceSubStage={voiceSubStage}
+          editBatch={editBatch}
+          totalEditBatches={totalEditBatches}
         />
       )}
 

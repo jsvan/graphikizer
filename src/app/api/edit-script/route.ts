@@ -4,19 +4,21 @@ import { verifyPassword } from "@/lib/auth";
 
 export const maxDuration = 120;
 
-const SYSTEM_PROMPT = `You are an editor reviewing a graphic novel script adapted from a Foreign Affairs article. Your job is to improve the script's readability and dramatic quality while preserving all factual content.
+const SYSTEM_PROMPT = `You are an editor for a graphic novel adapted from a Foreign Affairs article. You have the full source article for context. You are editing a batch of panels from the larger script.
 
 Rules:
-1. Convert narration-on-behalf-of into dialogue where possible (e.g., "The analyst argues that X" should become a dialogue overlay from "Analyst": "X")
-2. Tighten verbose narration boxes — max 2 sentences per narration overlay
-3. Remove redundant overlays that repeat the same point
-4. Ensure every panel still has at least one overlay
-5. Keep all factual content intact — this is educational material
-6. Keep speaker names exactly as they are — do not rename any speakers
-7. Keep artworkPrompt, sourceExcerpt, layout, focalPoint, panelIndex unchanged — only edit overlay text and types
-8. When converting narration to dialogue, set type to "dialogue" and include the appropriate speaker name
+1. Tighten verbose narration — max 2 sentences per narration box
+2. Convert narration-on-behalf-of into dialogue where a speaker is identifiable
+3. Remove redundant overlays that repeat points already clear from other overlays or the artwork
+4. Reclassify overlay types freely (dialogue↔narration↔caption) when it improves clarity
+5. Keep all factual content — this is educational
+6. Keep speaker names as-is
+7. You may edit artworkPrompt to better match your editorial changes (e.g., if you turn narration about "France's uneasiness" into dialogue, update the artwork to show the speaker). Follow the same artwork rules: concrete visual details, real names, no text/words in images, content-safe.
+8. sourceExcerpt, layout, and focalPoint are provided as INPUT CONTEXT ONLY — use them to understand what each panel adapts, but do NOT include them in your output
+9. You may remove overlays or add new ones, but every panel must keep at least one overlay
+10. When converting narration to dialogue, set type to "dialogue" and include the appropriate speaker name
 
-Output the same JSON structure you receive, with only the overlays array modified on each panel. Output valid JSON only, no markdown fences, no commentary.`;
+Output a JSON array where each element has ONLY these fields: panelIndex, artworkPrompt, overlays. Do NOT include sourceExcerpt, layout, or focalPoint in the output — they are read-only context. Output valid JSON only, no markdown fences, no commentary.`;
 
 /** Strip markdown fences and trim. */
 function stripFences(text: string): string {
@@ -66,12 +68,12 @@ function sanitizeJsonControlChars(text: string): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { panels, password } = body as {
+    const { panels, password, articleText, articleTitle, batchIndex, totalBatches, totalPanelCount } = body as {
       panels: Array<{
         panelIndex: number;
         artworkPrompt: string;
-        sourceExcerpt: string;
-        layout: string;
+        sourceExcerpt?: string;
+        layout?: string;
         focalPoint?: string;
         overlays: Array<{
           type: string;
@@ -81,6 +83,11 @@ export async function POST(req: NextRequest) {
         }>;
       }>;
       password: string;
+      articleText?: string;
+      articleTitle?: string;
+      batchIndex?: number;
+      totalBatches?: number;
+      totalPanelCount?: number;
     };
 
     if (!panels || !password) {
@@ -102,13 +109,22 @@ export async function POST(req: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    const userPrompt = `Here is the graphic novel script as a JSON array of panels. Edit the overlays according to the rules, then return the full panels array with your edits:
+    // Build context-rich user prompt
+    const articleSection = articleText
+      ? `FULL ARTICLE (for context):\n"${articleTitle || "Untitled"}"\n${articleText}\n\n---\n\n`
+      : "";
 
+    const batchLabel =
+      batchIndex !== undefined && totalBatches !== undefined && totalPanelCount !== undefined
+        ? `PANELS TO EDIT (batch ${batchIndex + 1} of ${totalBatches}, panels ${panels[0]?.panelIndex ?? 0}-${panels[panels.length - 1]?.panelIndex ?? 0} of ${totalPanelCount}):`
+        : "PANELS TO EDIT:";
+
+    const userPrompt = `${articleSection}${batchLabel}
 ${JSON.stringify(panels, null, 2)}`;
 
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5-20250929",
-      max_tokens: 16000,
+      max_tokens: 12000,
       messages: [{ role: "user", content: userPrompt }],
       system: SYSTEM_PROMPT,
       temperature: 0.3,

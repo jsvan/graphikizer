@@ -14,6 +14,8 @@ interface GenerationProgressProps {
   currentVoice?: number;
   totalVoices?: number;
   voiceSubStage?: "describing" | "creating" | "speaking";
+  editBatch?: number;
+  totalEditBatches?: number;
 }
 
 export default function GenerationProgress({
@@ -27,6 +29,8 @@ export default function GenerationProgress({
   currentVoice = 0,
   totalVoices = 0,
   voiceSubStage,
+  editBatch = 0,
+  totalEditBatches = 0,
 }: GenerationProgressProps) {
   const [scriptExpanded, setScriptExpanded] = useState(false);
 
@@ -51,7 +55,7 @@ export default function GenerationProgress({
         {stage === "editing" && (
           <div className="text-center">
             <div className="animate-pulse text-amber-400 text-lg font-semibold mb-2">
-              Editing Script...
+              Editing Script{totalEditBatches > 1 ? ` (batch ${editBatch} of ${totalEditBatches})` : ""}...
             </div>
             <p className="text-gray-400 text-sm">
               AI editor is tightening narration and converting indirect speech to dialogue.
