@@ -48,7 +48,7 @@ export interface PanelMargins {
 export interface ComicPanel {
   panelIndex: number;
   artworkPrompt: string;
-  sourceExcerpt: string;
+  sourceExcerpt?: string;
   overlays: TextOverlay[];
   layout: PanelLayout;
   /** Where the main visual subject is in this panel's composition */

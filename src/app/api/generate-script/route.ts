@@ -7,7 +7,7 @@ import {
 } from "@/lib/prompts";
 import type { ArtStyle } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const SYSTEM_PROMPT =
   "You are a graphic novel script writer who adapts policy articles into educational comics. Your comics must convey the FULL substance of the source material — every major argument, key evidence, and conclusion. You output only valid JSON, no markdown fences, no commentary.";

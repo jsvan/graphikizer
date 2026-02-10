@@ -1012,13 +1012,12 @@ export default function UploadForm() {
       // Step 1b: Editorial pass — tighten narration, convert to dialogue (batched)
       setStage("editing");
       try {
-        // Send full panel context (including sourceExcerpt/layout/focalPoint as read-only context)
+        // Send full panel context (including layout/focalPoint as read-only context)
         // The editor prompt tells Claude to output only panelIndex + artworkPrompt + overlays
         const allPanelsFlat = script.pages.flatMap((page) =>
           page.panels.map((p) => ({
             panelIndex: p.panelIndex,
             artworkPrompt: p.artworkPrompt,
-            sourceExcerpt: p.sourceExcerpt,
             layout: p.layout,
             focalPoint: p.focalPoint,
             overlays: p.overlays.map((o) => ({

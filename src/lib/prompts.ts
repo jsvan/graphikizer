@@ -9,8 +9,7 @@ const CONTENT_RULES = `CONTENT RULES:
    - Narration ONLY for transitions, background context, pure exposition. Keep narration to 1-2 sentences max.
 3. Every panel needs at least one overlay. Most panels should have 2-3. At least half of all panels must have dialogue.
 4. Use captions liberally for dates, locations, statistics, and contextual labels.
-5. sourceExcerpt: copy the 1-3 sentence passage from the article that each panel illustrates.
-6. SPEAKERS: Use consistent names. Consolidate generic voices (analysts, officials, experts) into a small set like "Analyst", "Official", "Critic" — don't invent unique names for each.`;
+5. SPEAKERS: Use consistent names. Consolidate generic voices (analysts, officials, experts) into a small set like "Analyst", "Official", "Critic" — don't invent unique names for each.`;
 
 const PANEL_LAYOUT_RULES = `PANEL LAYOUT ("layout" field):
 - "normal" (2-col span, ~60%) — standard panel
@@ -91,7 +90,6 @@ OUTPUT FORMAT (strict JSON):
     {
       "panelIndex": 0,
       "artworkPrompt": "In [Style] style, ...",
-      "sourceExcerpt": "Passage from the article this panel covers",
       "layout": "wide",
       "focalPoint": "center",
       "overlays": [
@@ -152,7 +150,6 @@ OUTPUT FORMAT (strict JSON):
     {
       "panelIndex": ${startPanelIndex},
       "artworkPrompt": "In ${artStyle.name} style, ...",
-      "sourceExcerpt": "Passage from the article",
       "layout": "normal",
       "focalPoint": "left",
       "overlays": [

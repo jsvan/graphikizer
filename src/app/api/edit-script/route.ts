@@ -14,11 +14,11 @@ Rules:
 5. Keep all factual content — this is educational
 6. Keep speaker names as-is
 7. You may edit artworkPrompt to better match your editorial changes (e.g., if you turn narration about "France's uneasiness" into dialogue, update the artwork to show the speaker). Follow the same artwork rules: concrete visual details, real names, no text/words in images, content-safe.
-8. sourceExcerpt, layout, and focalPoint are provided as INPUT CONTEXT ONLY — use them to understand what each panel adapts, but do NOT include them in your output
+8. layout and focalPoint are provided as INPUT CONTEXT ONLY — do NOT include them in your output
 9. You may remove overlays or add new ones, but every panel must keep at least one overlay
 10. When converting narration to dialogue, set type to "dialogue" and include the appropriate speaker name
 
-Output a JSON array where each element has ONLY these fields: panelIndex, artworkPrompt, overlays. Do NOT include sourceExcerpt, layout, or focalPoint in the output — they are read-only context. Output valid JSON only, no markdown fences, no commentary.`;
+Output a JSON array where each element has ONLY these fields: panelIndex, artworkPrompt, overlays. Do NOT include layout or focalPoint in the output — they are read-only context. Output valid JSON only, no markdown fences, no commentary.`;
 
 /** Strip markdown fences and trim. */
 function stripFences(text: string): string {
@@ -72,7 +72,6 @@ export async function POST(req: NextRequest) {
       panels: Array<{
         panelIndex: number;
         artworkPrompt: string;
-        sourceExcerpt?: string;
         layout?: string;
         focalPoint?: string;
         overlays: Array<{
