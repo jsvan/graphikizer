@@ -122,6 +122,7 @@ export interface ArticleManifest {
 export type GenerationStage =
   | "idle"
   | "script"
+  | "editing"
   | "voices"
   | "panels"
   | "saving"

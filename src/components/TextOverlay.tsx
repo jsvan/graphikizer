@@ -215,7 +215,7 @@ export default function TextOverlay({
     position: "absolute",
     width: fixedWidth,
     maxWidth: `${maxWidthPercent}%`,
-    zIndex: 10,
+    zIndex: type === "dialogue" ? 30 : 10,
     overflowWrap: "break-word",
     wordWrap: "break-word",
   };

@@ -1006,6 +1006,78 @@ export default function UploadForm() {
         body: JSON.stringify({ manifest: earlyManifest, password }),
       });
 
+      // Step 1b: Editorial pass — tighten narration, convert to dialogue
+      setStage("editing");
+      try {
+        const allPanelsForEdit = script.pages.flatMap((page) =>
+          page.panels.map((p) => ({
+            panelIndex: p.panelIndex,
+            artworkPrompt: p.artworkPrompt,
+            sourceExcerpt: p.sourceExcerpt,
+            layout: p.layout,
+            focalPoint: p.focalPoint,
+            overlays: p.overlays.map((o) => ({
+              type: o.type,
+              text: o.text,
+              speaker: o.speaker,
+              characterPosition: o.characterPosition,
+            })),
+          }))
+        );
+
+        const editRes = await fetch("/api/edit-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ panels: allPanelsForEdit, password }),
+        });
+
+        const editText = await editRes.text();
+        const editLines = editText.split("\n").filter(Boolean);
+        const editResult =
+          editLines.length > 0
+            ? JSON.parse(editLines[editLines.length - 1])
+            : { success: false };
+
+        if (editResult.success && Array.isArray(editResult.panels)) {
+          // Apply edited overlays back to the script panels
+          const editedPanelMap = new Map(
+            editResult.panels.map((p: { panelIndex: number; overlays: unknown[] }) => [p.panelIndex, p])
+          );
+          for (const page of script.pages) {
+            for (const panel of page.panels) {
+              const edited = editedPanelMap.get(panel.panelIndex) as {
+                overlays: Array<{
+                  type: string;
+                  text: string;
+                  speaker?: string;
+                  characterPosition?: string;
+                }>;
+              } | undefined;
+              if (edited?.overlays && edited.overlays.length > 0) {
+                panel.overlays = edited.overlays.map((o) => ({
+                  type: o.type as "dialogue" | "narration" | "caption",
+                  text: o.text,
+                  x: 0,
+                  y: 0,
+                  anchor: "top-left" as const,
+                  ...(o.speaker ? { speaker: o.speaker } : {}),
+                  ...(o.characterPosition ? { characterPosition: o.characterPosition as import("@/lib/types").FocalPoint } : {}),
+                }));
+                // Re-run placement since text lengths may have changed
+                panel.overlays = placeOverlays(panel.overlays, panel.layout, panel.focalPoint);
+              }
+            }
+          }
+          console.log("[Editor] Script editing complete — overlays updated");
+        } else {
+          console.warn("[Editor] Edit failed or returned bad data, using original script");
+        }
+      } catch (editErr) {
+        console.warn("[Editor] Script editing error (non-fatal):", editErr);
+      }
+
+      scriptRef.current = script;
+
       // Run voice + panel pipeline with decision loops
       await runPipelineFromVoices(script, title, true);
     } catch (error) {

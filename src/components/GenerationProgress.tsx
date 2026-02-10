@@ -48,6 +48,17 @@ export default function GenerationProgress({
           </div>
         )}
 
+        {stage === "editing" && (
+          <div className="text-center">
+            <div className="animate-pulse text-amber-400 text-lg font-semibold mb-2">
+              Editing Script...
+            </div>
+            <p className="text-gray-400 text-sm">
+              AI editor is tightening narration and converting indirect speech to dialogue.
+            </p>
+          </div>
+        )}
+
         {stage === "panels" && (
           <div>
             <div className="flex justify-between items-center mb-2">

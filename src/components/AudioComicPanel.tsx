@@ -1,9 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import type { ComicPanel as ComicPanelType, CharacterVoiceProfile } from "@/lib/types";
 import TextOverlay from "./TextOverlay";
 import CharacterMarble from "./CharacterMarble";
 import { useVoicePanelState } from "@/hooks/useVoicePanelState";
+import { resolveMarbleCollisions } from "@/lib/marbleCollision";
 
 interface AudioComicPanelProps {
   panel: ComicPanelType;
@@ -26,6 +28,36 @@ export default function AudioComicPanel({
   const { activeOverlay, voiceState, play, stop } = useVoicePanelState();
 
   const voiceMap = new Map(voices.map((v) => [v.speaker, v]));
+
+  // Collect dialogue overlays with audio and compute collision-adjusted marble positions
+  const dialogueAudioIndices = useMemo(
+    () =>
+      overlays.reduce<number[]>((acc, o, i) => {
+        if (o.type === "dialogue" && o.audioUrl) acc.push(i);
+        return acc;
+      }, []),
+    [overlays]
+  );
+
+  const adjustedMarblePositions = useMemo(
+    () =>
+      resolveMarbleCollisions(
+        dialogueAudioIndices.map(
+          (i) => overlays[i].characterPosition || panel.focalPoint || "center"
+        ),
+        overlays
+      ),
+    [dialogueAudioIndices, overlays, panel.focalPoint]
+  );
+
+  // Map from overlay index to adjusted position index
+  const marblePositionMap = useMemo(() => {
+    const m = new Map<number, number>();
+    dialogueAudioIndices.forEach((overlayIdx, marbleIdx) => {
+      m.set(overlayIdx, marbleIdx);
+    });
+    return m;
+  }, [dialogueAudioIndices]);
 
   return (
     <div
@@ -61,8 +93,11 @@ export default function AudioComicPanel({
           if (isDialogue && overlay.audioUrl) {
             const voice = overlay.speaker ? voiceMap.get(overlay.speaker) : null;
             const isNarrator = voice?.isNarrator ?? false;
+            const marbleIdx = marblePositionMap.get(i);
             const marblePos =
-              overlay.characterPosition || panel.focalPoint || "center";
+              marbleIdx !== undefined
+                ? adjustedMarblePositions[marbleIdx]
+                : overlay.characterPosition || panel.focalPoint || "center";
 
             return (
               <div key={i}>

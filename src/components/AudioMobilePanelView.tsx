@@ -4,6 +4,7 @@ import { useCallback, useRef } from "react";
 import type { ComicPanel, CharacterVoiceProfile } from "@/lib/types";
 import CharacterMarble from "./CharacterMarble";
 import { useVoicePanelState } from "@/hooks/useVoicePanelState";
+import { resolveMarbleCollisions } from "@/lib/marbleCollision";
 
 interface AudioMobilePanelViewProps {
   panels: ComicPanel[];
@@ -51,6 +52,17 @@ export default function AudioMobilePanelView({
 
   const { imageUrl, overlays } = panel;
 
+  // Split overlays into 3 groups
+  const captions = overlays.filter((o) => o.type === "caption");
+  const dialogues = overlays.filter((o) => o.type === "dialogue");
+  const narrations = overlays.filter((o) => o.type === "narration");
+
+  // Compute collision-adjusted marble positions
+  const adjustedMarblePositions = resolveMarbleCollisions(
+    dialogues.map((o) => o.characterPosition || panel.focalPoint || "center"),
+    overlays
+  );
+
   return (
     <div
       className="w-full"
@@ -78,7 +90,21 @@ export default function AudioMobilePanelView({
         </button>
       </div>
 
-      {/* Panel image with marbles */}
+      {/* Captions above image */}
+      {captions.length > 0 && (
+        <div className="px-3 py-1 space-y-1">
+          {captions.map((overlay, i) => (
+            <div
+              key={`cap-${i}`}
+              className="bg-amber-100 border-2 border-gray-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-800 shadow-sm"
+            >
+              {overlay.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Panel image with marbles + dialogue bubbles */}
       <div className="w-full border-y-2 border-gray-800 bg-gray-900 relative">
         {imageUrl ? (
           <img
@@ -93,86 +119,113 @@ export default function AudioMobilePanelView({
           </div>
         )}
 
-        {/* Marbles over image for dialogue overlays */}
-        {overlays.map((overlay, i) => {
-          if (overlay.type !== "dialogue" || !overlay.audioUrl) return null;
+        {/* Marbles + dialogue on image */}
+        {dialogues.map((overlay, i) => {
+          if (!overlay.audioUrl) return null;
+          const overlayIndex = overlays.indexOf(overlay);
           const voice = overlay.speaker
             ? voiceMap.get(overlay.speaker)
             : null;
           const isNarrator = voice?.isNarrator ?? false;
-          const marblePos =
-            overlay.characterPosition || panel.focalPoint || "center";
-          const isActive = activeOverlay === i;
+          const adjustedPos = adjustedMarblePositions[i];
+          const isActive = activeOverlay === overlayIndex;
 
           return (
-            <CharacterMarble
-              key={i}
-              position={marblePos}
-              onClick={() => {
-                if (isActive && voiceState === "playing") {
-                  stop();
-                } else {
-                  play(i, overlay.audioUrl!);
-                }
+            <div key={`marble-${i}`}>
+              <CharacterMarble
+                position={adjustedPos}
+                onClick={() => {
+                  if (isActive && voiceState === "playing") {
+                    stop();
+                  } else {
+                    play(overlayIndex, overlay.audioUrl!);
+                  }
+                }}
+                isPlaying={isActive && voiceState === "playing"}
+                isLoading={isActive && voiceState === "loading"}
+                isNarrator={isNarrator}
+                speaker={overlay.speaker}
+              />
+              {/* Show dialogue bubble on image when active */}
+              {isActive && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: `${Math.min(Math.max(overlay.x || 10, 2), 60)}%`,
+                    top: `${Math.min(Math.max(overlay.y || 5, 0), 45)}%`,
+                    maxWidth: "60%",
+                    zIndex: 30,
+                  }}
+                >
+                  {overlay.speaker && (
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-wider text-amber-400 mb-0.5 px-1 block"
+                      style={{
+                        textShadow:
+                          "1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9)",
+                      }}
+                    >
+                      {overlay.speaker}
+                    </span>
+                  )}
+                  <div className="bg-white/95 text-gray-900 rounded-md px-2 py-1.5 text-xs leading-snug border border-gray-900 shadow-lg relative">
+                    {overlay.text}
+                    <div className="absolute -bottom-1.5 left-3 w-2 h-2 bg-white/95 border-b border-r border-gray-900 rotate-45" />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Dialogue bubbles without audio — show on image */}
+        {dialogues.map((overlay, i) => {
+          if (overlay.audioUrl) return null;
+          const clampedY = Math.min(Math.max(overlay.y || 5, 0), 45);
+          const xPos = overlay.x || 10;
+
+          return (
+            <div
+              key={`dlg-static-${i}`}
+              style={{
+                position: "absolute",
+                left: `${xPos}%`,
+                top: `${clampedY}%`,
+                maxWidth: "60%",
+                zIndex: 30,
               }}
-              isPlaying={isActive && voiceState === "playing"}
-              isLoading={isActive && voiceState === "loading"}
-              isNarrator={isNarrator}
-              speaker={overlay.speaker}
-            />
+            >
+              {overlay.speaker && (
+                <span
+                  className="text-[9px] font-bold uppercase tracking-wider text-amber-400 mb-0.5 px-1 block"
+                  style={{
+                    textShadow:
+                      "1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9)",
+                  }}
+                >
+                  {overlay.speaker}
+                </span>
+              )}
+              <div className="bg-white/95 text-gray-900 rounded-md px-2 py-1.5 text-xs leading-snug border border-gray-900 shadow-lg relative">
+                {overlay.text}
+                <div className="absolute -bottom-1.5 left-3 w-2 h-2 bg-white/95 border-b border-r border-gray-900 rotate-45" />
+              </div>
+            </div>
           );
         })}
       </div>
 
-      {/* Overlays below image */}
-      {overlays.length > 0 && (
+      {/* Narration below image */}
+      {narrations.length > 0 && (
         <div className="px-3 py-2 space-y-2">
-          {overlays.map((overlay, i) => {
-            const isDialogue = overlay.type === "dialogue";
-            const isActive = activeOverlay === i;
-
-            // Dialogue with audio: only show when active
-            if (isDialogue && overlay.audioUrl && !isActive) {
-              return null;
-            }
-
-            if (isDialogue) {
-              return (
-                <div key={i}>
-                  {overlay.speaker && (
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1 px-1">
-                      {overlay.speaker}
-                    </div>
-                  )}
-                  <div className="bg-white text-gray-900 rounded-lg px-4 py-2.5 text-sm leading-relaxed border-2 border-gray-900 shadow-md relative">
-                    {overlay.text}
-                    <div className="absolute -top-2 left-4 w-3 h-3 bg-white border-t-2 border-l-2 border-gray-900 rotate-45" />
-                  </div>
-                </div>
-              );
-            }
-
-            if (overlay.type === "narration") {
-              return (
-                <div
-                  key={i}
-                  className="bg-amber-50 border-2 border-gray-900 border-l-4 px-4 py-2.5 text-gray-900 text-sm italic leading-relaxed shadow-md"
-                >
-                  {overlay.text}
-                </div>
-              );
-            }
-
-            // caption
-            return (
-              <div
-                key={i}
-                className="bg-amber-100 border-2 border-gray-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-800 shadow-sm"
-              >
-                {overlay.text}
-              </div>
-            );
-          })}
+          {narrations.map((overlay, i) => (
+            <div
+              key={`nar-${i}`}
+              className="bg-amber-50 border-2 border-gray-900 border-l-4 px-4 py-2.5 text-gray-900 text-sm italic leading-relaxed shadow-md"
+            >
+              {overlay.text}
+            </div>
+          ))}
         </div>
       )}
 
