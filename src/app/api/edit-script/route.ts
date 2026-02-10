@@ -17,6 +17,7 @@ Rules:
 8. layout and focalPoint are provided as INPUT CONTEXT ONLY — do NOT include them in your output
 9. You may remove overlays or add new ones, but every panel must keep at least one overlay
 10. When converting narration to dialogue, set type to "dialogue" and include the appropriate speaker name
+11. For every dialogue overlay, include "characterPosition" — where the speaker is in the panel artwork. Values: "center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right". Preserve existing values; for new dialogue, infer from the artworkPrompt.
 
 Output a JSON array where each element has ONLY these fields: panelIndex, artworkPrompt, overlays. Do NOT include layout or focalPoint in the output — they are read-only context. Output valid JSON only, no markdown fences, no commentary.`;
 
